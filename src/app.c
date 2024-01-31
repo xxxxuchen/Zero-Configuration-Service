@@ -5,11 +5,12 @@
 
 void hello(char *s, char *r) {
     printf("Ad received: %s, with value: %s\n", s, r);
+    zcs_log();
 }
 
 int main() {
     int rv;
-    rv = zcs_init();
+    rv = zcs_init(ZCS_APP_TYPE);
     char *names[10];
     rv = zcs_query("type", "speaker", names, 10);
     if (rv > 0) {

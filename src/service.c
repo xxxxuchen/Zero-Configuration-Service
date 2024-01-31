@@ -3,7 +3,7 @@
 
 int main() {
     int rv;
-    rv = zcs_init();
+    rv = zcs_init(ZCS_SERVICE_TYPE);
     zcs_attribute_t attribs[] = {
 	    { .attr_name = "type", .value = "speaker"},
 	    { .attr_name = "location", .value = "kitchen"},
@@ -16,6 +16,5 @@ int main() {
         sleep(10);
     }
     rv = zcs_shutdown();
-    zcs_log();
 }
 

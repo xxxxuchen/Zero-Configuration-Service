@@ -2,13 +2,13 @@
 
 ### some rough ideas
 
-- zcs_init: (treat as app node by default)
-  1. create a local table and other global variables
+- zcs_init: (check app or service node)
+  1. create a local table if it is service 
   2. send DISCOVERY - once 
   3. listen NOTIFICATION, HEARTBEAT periodically (in another thread)
      - update the local table 
 
-- zcs_start: (app node  -> service node)
+- zcs_start: (only for the service node)
   1. send NOTIFICATION - once
   2. listen DISCOVERY periodically (in another thread)
      - if DISCOVERY received, send NOTIFICATION 
