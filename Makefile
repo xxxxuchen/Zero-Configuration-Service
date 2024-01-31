@@ -1,2 +1,2 @@
 start: 
-		docker compose run --rm --build zcs
+		docker compose run zcs
