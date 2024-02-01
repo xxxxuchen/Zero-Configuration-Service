@@ -21,16 +21,27 @@
 typedef struct localTableEntry {
   char *serviceName;
   bool status;
-  int lastHeartbeat;
+  int lastHeartbeat;  // timestamp of the last heartbeat
   zcs_attribute_t attributes[MAX_ATTR_NUM];
+  zcs_cb_f callback;  // callback function for the service
 } LocalTableEntry;
+
+typedef struct heartbeatSenderArgs {
+  mcast_t *channel;
+  char *serviceName;
+} HeartbeatSenderArgs;
+
+typedef struct discoveryListenerArgs {
+  mcast_t *channel;
+  char *serviceName;
+  int attrNum;
+  zcs_attribute_t *attr;
+} DiscoveryListenerArgs;
 
 LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
 pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
 
 bool isInitialized = false;
-
-void encode_message();
 
 void decode_type_name(char *message, char **type, char **serviceName) {
   char *token = strtok(message, "&");
@@ -82,6 +93,21 @@ void decode_whole_message(char *message, LocalTableEntry *entry) {
   }
 }
 
+void send_notification(mcast_t *channel, const char *name,
+                       zcs_attribute_t attr[], int num) {
+  char message[256];
+  snprintf(message, sizeof(message), "type=NOTIFICATION&name=%s", name);
+
+  for (int i = 0; i < num && i < MAX_ATTR_NUM; i++) {
+    if (attr[i].attr_name != NULL && attr[i].value != NULL) {
+      snprintf(message + strlen(message), sizeof(message) - strlen(message),
+               "&%s=%s", attr[i].attr_name, attr[i].value);
+    }
+  }
+
+  multicast_send(channel, message, strlen(message));
+}
+
 void *app_listen_messages(void *channel) {
   mcast_t *m = (mcast_t *)channel;
   char buffer[100];
@@ -101,7 +127,8 @@ void *app_listen_messages(void *channel) {
       bool serviceExists = false;
       // if there is already an entry for the service, skip
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, serviceName) == 0) {
+        if (localTable[i].serviceName != NULL &&
+            strcmp(localTable[i].serviceName, serviceName) == 0) {
           serviceExists = true;
           break;
         }
@@ -109,21 +136,24 @@ void *app_listen_messages(void *channel) {
       if (!serviceExists) {
         pthread_mutex_lock(&localTableLock);
         LocalTableEntry entry;
-        entry.serviceName = strdup(serviceName); // Allocate new memory for serviceName
+        // actually no need to assign serviceName here, it would be done inside
+        // the decode_whole_message
         entry.status = true;
         entry.lastHeartbeat = time(NULL);
         decode_whole_message(bufferCopy, &entry);
+        free(bufferCopy);
         if (index < MAX_SERVICE_NUM) {
           localTable[index++] = entry;
         }
         pthread_mutex_unlock(&localTableLock);
       }
-    } else if (strcmp(type, "HEARTBEAT") == 0) { 
-      //CONFUSED BY THIS CHECK TO BE HONEST; ISNT THE OTHER THREAD DOING THE HEARTBEAT CHECK?
+    } else if (strcmp(type, "HEARTBEAT") == 0) {
+      // listen for HEARTBEAT message
       pthread_mutex_lock(&localTableLock);
       // set the lastHeartbeat to the current time
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, serviceName) == 0) {
+        if (localTable[i].serviceName != NULL &&
+            strcmp(localTable[i].serviceName, serviceName) == 0) {
           localTable[i].lastHeartbeat = time(NULL);
           break;
         }
@@ -131,8 +161,8 @@ void *app_listen_messages(void *channel) {
       pthread_mutex_unlock(&localTableLock);
     }
   }
+  return NULL;
 }
-
 // check if the service is still alive by checking the lastHeartbeat
 void *app_check_heartbeat(void *channel) {
   while (1) {
@@ -148,7 +178,46 @@ void *app_check_heartbeat(void *channel) {
     }
     pthread_mutex_unlock(&localTableLock);
   }
+  return NULL;
 }
+
+void *service_send_heartbeat(void *args) {
+  HeartbeatSenderArgs *heartbeatArgs = (HeartbeatSenderArgs *)args;
+  mcast_t *channel = heartbeatArgs->channel;
+  char *serviceName = heartbeatArgs->serviceName;
+  char message[256];
+  snprintf(message, sizeof(message), "type=HEARTBEAT&name=%s", serviceName);
+  // send HEARTBEAT message every second
+  while (1) {
+    sleep(1);
+    multicast_send(channel, message, strlen(message));
+  }
+  return NULL;
+}
+
+void *service_listen_discovery(void *args) {
+  DiscoveryListenerArgs *discoveryArgs = (DiscoveryListenerArgs *)args;
+  mcast_t *channel = discoveryArgs->channel;
+  char *serviceName = discoveryArgs->serviceName;
+  int attrNum = discoveryArgs->attrNum;
+  zcs_attribute_t *attr = discoveryArgs->attr;
+  char buffer[100];
+  multicast_setup_recv(channel);
+  while (1) {
+    while (multicast_check_receive(channel) == 0) {
+      printf("repeat..service is checking messages .. \n");
+    }
+    multicast_receive(channel, buffer, 100);
+    char *type = NULL;
+    char *receivedServiceName = NULL;
+    decode_type_name(buffer, &type, &receivedServiceName);
+    if (strcmp(type, "DISCOVERY") == 0) {
+      // send NOTIFICATION message
+      send_notification(channel, serviceName, attr, attrNum);
+    }
+  }
+  return NULL;
+};
 
 int zcs_init(int type) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
@@ -178,12 +247,54 @@ int zcs_init(int type) {
   } else if (type == ZCS_SERVICE_TYPE) {
     // do nothing? set up in zcs_start
   }
-  isInitialized = true; 
+  isInitialized = true;
+  return 0;
+}
+
+int zcs_start(char *name, zcs_attribute_t attr[], int num) {
+  if (!isInitialized) {
+    printf("ZCS not initialized.\n");
+    return -1;
+  }
+  // create a sending multicast channel for service
+  mcast_t *serviceSendingChannel =
+      multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
+
+  // send NOTIFICATION message
+  send_notification(serviceSendingChannel, name, attr, num);
+
+  // send HEARTBEAT message periodically in another thread
+  pthread_t heartbeatSender;
+  HeartbeatSenderArgs *heartbeatArgs =
+      (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
+  heartbeatArgs->channel = serviceSendingChannel;
+  heartbeatArgs->serviceName = strdup(name);
+  pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
+
+  // create a receiving multicast channel for service
+  mcast_t *serviceReceivingChannel =
+      multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
+
+  // listen for discovery in another thread periodically
+  pthread_t messageListener;
+  DiscoveryListenerArgs *discoveryArgs =
+      (DiscoveryListenerArgs *)malloc(sizeof(DiscoveryListenerArgs));
+  discoveryArgs->channel = serviceReceivingChannel;
+  discoveryArgs->serviceName = strdup(name);
+  discoveryArgs->attrNum = num;
+  discoveryArgs->attr =
+      (zcs_attribute_t *)malloc(num * sizeof(zcs_attribute_t));
+  for (int i = 0; i < num; i++) {
+    discoveryArgs->attr[i].attr_name = strdup(attr[i].attr_name);
+    discoveryArgs->attr[i].value = strdup(attr[i].value);
+  }
+  pthread_create(&messageListener, NULL, service_listen_discovery,
+                 discoveryArgs);
   return 0;
 }
 
 // Assuming a simple global state for demonstration purposes
-static int initialized = 0;
+// static int initialized = 0;
 static char *service_name = NULL;
 static zcs_attribute_t *service_attributes = NULL;
 static int service_attr_count = 0;
@@ -223,22 +334,23 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
 // }
 
 int zcs_post_ad(char *ad_name, char *ad_value) {
-    char message[256]; // Adjust size based on expected message length
-    // Format the advertisement message
-    snprintf(message, sizeof(message), "%s:%s", ad_name, ad_value);
-    mcast_t *channel = (zcs_type == ZCS_APP_TYPE) ? appSendingChannel : serviceSendingChannel;
+  char message[256];  // Adjust size based on expected message length
+  // Format the advertisement message
+  snprintf(message, sizeof(message), "%s:%s", ad_name, ad_value);
+  mcast_t *channel =
+      (zcs_type == ZCS_APP_TYPE) ? appSendingChannel : serviceSendingChannel;
 
-    // Check if the channel is initialized properly
-    if (channel == NULL) {
-        printf("Error: Multicast channel is not initialized.\n");
-        return -1;
-    }
+  // Check if the channel is initialized properly
+  if (channel == NULL) {
+    printf("Error: Multicast channel is not initialized.\n");
+    return -1;
+  }
 
-    // Use multicast_send to post the advertisement
-    if (multicast_send(channel, message, strlen(message)) == -1) {
-        perror("multicast_send failed");
-        return -1;
-    }
+  // Use multicast_send to post the advertisement
+  if (multicast_send(channel, message, strlen(message)) == -1) {
+    perror("multicast_send failed");
+    return -1;
+  }
 }
 
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
