@@ -147,7 +147,7 @@ int zcs_init(int type) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
     return -1;
   }
-  isInitialized = true;
+  isInitialized = true; // Should this be at the end before retunrin?
 
   if (type == ZCS_APP_TYPE) {
     // create a sending multicast channel for app
