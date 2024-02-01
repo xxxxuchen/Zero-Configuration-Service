@@ -200,7 +200,7 @@ static int service_attr_count = 0;
 // }
 
 int zcs_start(char *name, zcs_attribute_t attr[], int num) {
-  if (!initialized) {
+  if (!isInitialized) {
     printf("ZCS not initialized.\n");
     return -1;
   }
