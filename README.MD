@@ -21,3 +21,9 @@ zcs_start: (only for the service node)
 zcs_listen_ad
   update the received service node status in the local table with the corresponding callback pointer.
   look up the table when a message is received. The receiving message will have the sender's name. use that and find the function to run. 
+
+
+### message format
+- DISCOVERY: "type=DISCOVERY"
+- HEARTBEAT: "type=HEARTBEAT&name=[serviceName]"
+- NOTIFICATION: "type=NOTIFICATION&name=[serviceName]&[attr_name]=[attr_value]"
