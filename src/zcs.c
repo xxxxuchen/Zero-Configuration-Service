@@ -98,20 +98,38 @@ void *app_listen_messages(void *channel) {
     decode_type_name(buffer, &type, &serviceName);
     // check if it is NOTIFICATION message or HEARTBEAT message
     if (strcmp(type, "NOTIFICATION") == 0) {
+      bool serviceExists = false;
       // if there is already an entry for the service, skip
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        if (localTable[i].serviceName == serviceName) {
-          continue;
+        // if (localTable[i].serviceName == serviceName) {
+        //   continue;
+        // }
+        if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, serviceName) == 0) {
+          serviceExists = true;
+          break;
         }
       }
-      pthread_mutex_lock(&localTableLock);
-      LocalTableEntry entry;
-      entry.serviceName = serviceName;
-      entry.status = true;
-      entry.lastHeartbeat = 0;
-      decode_whole_message(bufferCopy, &entry);
-      localTable[index++] = entry;
-      pthread_mutex_unlock(&localTableLock);
+        //   pthread_mutex_lock(&localTableLock);
+        //   LocalTableEntry entry;
+        //   entry.serviceName = serviceName;
+        //   entry.status = true;
+        //   entry.lastHeartbeat = 0;
+        //   decode_whole_message(bufferCopy, &entry);
+        //   localTable[index++] = entry;
+        //   pthread_mutex_unlock(&localTableLock);
+
+      if (!serviceExists) {
+        pthread_mutex_lock(&localTableLock);
+        LocalTableEntry entry;
+        entry.serviceName = strdup(serviceName); // Allocate new memory for serviceName
+        entry.status = true;
+        entry.lastHeartbeat = time(NULL);
+        decode_whole_message(bufferCopy, &entry);
+        if (index < MAX_SERVICE_NUM) {
+          localTable[index++] = entry;
+        }
+        pthread_mutex_unlock(&localTableLock);
+      }
     } else if (strcmp(type, "HEARTBEAT") == 0) {
       pthread_mutex_lock(&localTableLock);
       // set the lastHeartbeat to the current time and change the status to up
