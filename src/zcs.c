@@ -188,16 +188,16 @@ static char *service_name = NULL;
 static zcs_attribute_t *service_attributes = NULL;
 static int service_attr_count = 0;
 
-int zcs_init(int type) {
-  if (initialized) {
-    printf("ZCS already initialized.\n");
-    return -1;
-  }
-  // Initialize network, logging, etc., based on type
-  initialized = 1;
-  printf("ZCS initialized with type %d.\n", type);
-  return 0;
-}
+// int zcs_init(int type) {
+//   if (initialized) {
+//     printf("ZCS already initialized.\n");
+//     return -1;
+//   }
+//   // Initialize network, logging, etc., based on type
+//   initialized = 1;
+//   printf("ZCS initialized with type %d.\n", type);
+//   return 0;
+// }
 
 int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   if (!initialized) {
