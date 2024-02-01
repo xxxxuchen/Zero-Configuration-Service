@@ -130,11 +130,12 @@ void *app_listen_messages(void *channel) {
         }
         pthread_mutex_unlock(&localTableLock);
       }
-    } else if (strcmp(type, "HEARTBEAT") == 0) {
+    } else if (strcmp(type, "HEARTBEAT") == 0) { 
+      //CONFUSED BY THIS CHECK TO BE HONEST; ISNT THE OTHER THREAD DOING THE HEARTBEAT CHECK?
       pthread_mutex_lock(&localTableLock);
       // set the lastHeartbeat to the current time and change the status to up
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        if (localTable[i].serviceName == serviceName) {
+        if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, serviceName) == 0) {
           localTable[i].lastHeartbeat = time(NULL);
           break;
         }
