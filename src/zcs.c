@@ -101,23 +101,11 @@ void *app_listen_messages(void *channel) {
       bool serviceExists = false;
       // if there is already an entry for the service, skip
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        // if (localTable[i].serviceName == serviceName) {
-        //   continue;
-        // }
         if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, serviceName) == 0) {
           serviceExists = true;
           break;
         }
       }
-        //   pthread_mutex_lock(&localTableLock);
-        //   LocalTableEntry entry;
-        //   entry.serviceName = serviceName;
-        //   entry.status = true;
-        //   entry.lastHeartbeat = 0;
-        //   decode_whole_message(bufferCopy, &entry);
-        //   localTable[index++] = entry;
-        //   pthread_mutex_unlock(&localTableLock);
-
       if (!serviceExists) {
         pthread_mutex_lock(&localTableLock);
         LocalTableEntry entry;
@@ -132,7 +120,7 @@ void *app_listen_messages(void *channel) {
       }
     } else if (strcmp(type, "HEARTBEAT") == 0) {
       pthread_mutex_lock(&localTableLock);
-      // set the lastHeartbeat to the current time and change the status to up
+      // set the lastHeartbeat to the current time
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
         if (localTable[i].serviceName == serviceName) {
           localTable[i].lastHeartbeat = time(NULL);
@@ -165,7 +153,6 @@ int zcs_init(int type) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
     return -1;
   }
-  isInitialized = true; // Should this be at the end before retunrin?
 
   if (type == ZCS_APP_TYPE) {
     // create a sending multicast channel for app
@@ -190,6 +177,7 @@ int zcs_init(int type) {
   } else if (type == ZCS_SERVICE_TYPE) {
     // do nothing? set up in zcs_start
   }
+  isInitialized = true; 
   return 0;
 }
 
