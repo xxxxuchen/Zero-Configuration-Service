@@ -8,7 +8,6 @@
 #include <unistd.h>
 
 #include "multicast.h"
-#include "zcs.h"
 
 #define APP_SEND_CHANNEL_IP "224.1.1.1"
 #define SERVICE_LPORT 1100
@@ -17,10 +16,13 @@
 #define UNUSED_PORT 1000
 
 #define MAX_SERVICE_NUM 20
+#define MAX_ATTR_NUM 10
 
 typedef struct localTableEntry {
   char *serviceName;
-  //
+  bool status;
+  int lastHeartbeat;
+  zcs_attribute_t attributes[MAX_ATTR_NUM];
 } LocalTableEntry;
 
 LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
@@ -30,37 +32,114 @@ bool isInitialized = false;
 
 void encode_message();
 
-void decode_message();
-
-void *app_listen_notification(void *channel) {
-  mcast_t *m = (mcast_t *)channel;
-  char buffer[100];
-  while (1) {
-    while (multicast_check_receive(m) == 0) {
-      printf("repeat..checking notification.. \n");
+void decode_type_name(char *message, char **type, char **serviceName) {
+  char *token = strtok(message, "&");
+  while (token != NULL) {
+    char *key = strtok(token, "=");
+    char *value = strtok(NULL, "=");
+    if (strcmp(key, "type") == 0) {
+      *type = value;
+    } else if (strcmp(key, "serviceName") == 0) {
+      *serviceName = value;
     }
-    multicast_receive(m, buffer, 100);
-    // decoding the received string to get the message type and service name
-    // if the message is a NOTIFICATION, update the local table for
-    // corresponding service
+    token = strtok(NULL, "&");
   }
 }
 
-void *app_listen_heartbeat(void *channel) {
+void decode_whole_message(char *message, LocalTableEntry *entry) {
+  // tokenize the message based on '&'
+  char *token = strtok(message, "&");
+
+  while (token != NULL) {
+    // split each token into attribute name and value based on '='
+    char *equalSign = strchr(token, '=');
+    if (equalSign != NULL) {
+      *equalSign = '\0';  // null-terminate to separate name and value
+      char *attr_name = token;
+      char *value = equalSign + 1;
+      if (strcmp(attr_name, "type") == 0) {
+        // ignore the type field
+      } else if (strcmp(attr_name, "name") == 0) {
+        entry->serviceName = strdup(value);
+      } else {
+        // handle other attributes
+        int i;
+        for (i = 0; i < MAX_ATTR_NUM; i++) {
+          if (entry->attributes[i].attr_name == NULL) {
+            entry->attributes[i].attr_name = strdup(attr_name);
+            entry->attributes[i].value = strdup(value);
+            break;
+          }
+        }
+        if (i == MAX_ATTR_NUM) {
+          // reached the maximum number of attributes, handle accordingly
+          fprintf(stderr, "Max number of attributes exceeded.\n");
+        }
+      }
+    }
+    // move to the next token
+    token = strtok(NULL, "&");
+  }
+}
+
+void *app_listen_messages(void *channel) {
   mcast_t *m = (mcast_t *)channel;
   char buffer[100];
-  // check if heartbeat is received every 5 seconds
+  multicast_setup_recv(m);
+  int index = 0;
   while (1) {
-    usleep(5000000);
-    if (multicast_check_receive(m) == 0) {
-      // change the status of the service to down
-      continue;
+    while (multicast_check_receive(m) == 0) {
+      printf("repeat..app is checking messages .. \n");
     }
-    // successfully received the heartbeat, change down to up
+    char *type = NULL;
+    char *serviceName = NULL;
     multicast_receive(m, buffer, 100);
-    // decoding the received string to get the message type and service name
-    // if the message is a HEARTBEAT, update the local table for corresponding
-    // service
+    char *bufferCopy = strdup(buffer);
+    decode_type_name(buffer, &type, &serviceName);
+    // check if it is NOTIFICATION message or HEARTBEAT message
+    if (strcmp(type, "NOTIFICATION") == 0) {
+      // if there is already an entry for the service, skip
+      for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+        if (localTable[i].serviceName == serviceName) {
+          continue;
+        }
+      }
+      pthread_mutex_lock(&localTableLock);
+      LocalTableEntry entry;
+      entry.serviceName = serviceName;
+      entry.status = true;
+      entry.lastHeartbeat = 0;
+      decode_whole_message(bufferCopy, &entry);
+      localTable[index++] = entry;
+      pthread_mutex_unlock(&localTableLock);
+    } else if (strcmp(type, "HEARTBEAT") == 0) {
+      pthread_mutex_lock(&localTableLock);
+      // set the lastHeartbeat to the current time and change the status to up
+      for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+        if (localTable[i].serviceName == serviceName) {
+          localTable[i].lastHeartbeat = time(NULL);
+          break;
+        }
+      }
+      pthread_mutex_unlock(&localTableLock);
+    }
+  }
+}
+
+// check if the service is still alive by checking the lastHeartbeat
+void *app_check_heartbeat(void *channel) {
+  while (1) {
+    sleep(1);
+    pthread_mutex_lock(&localTableLock);
+    for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+      if (localTable[i].serviceName != NULL) {
+        // if lastHeartbeat is more than 5 seconds ago, set the status to down
+        if (time(NULL) - localTable[i].lastHeartbeat > 5) {
+          localTable[i].status = false;
+        }
+      }
+    }
+    pthread_mutex_unlock(&localTableLock);
   }
 }
 
@@ -82,19 +161,18 @@ int zcs_init(int type) {
     mcast_t *appReceivingChannel =
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
 
-    // listen for NOTIFICATION in another thread
-    pthread_t notificationListener;
-    pthread_create(&notificationListener, NULL, app_listen_notification,
+    // listen for messages in another thread
+    pthread_t messageListener;
+    pthread_create(&messageListener, NULL, app_listen_messages,
                    appReceivingChannel);
 
-    // listen for HEARTBEAT in another thread
-    pthread_t heartbeatListener;
-    pthread_create(&heartbeatListener, NULL, app_listen_heartbeat,
-                   appReceivingChannel);
-
+    // validate the service status in another thread
+    pthread_t heartbeatChecker;
+    pthread_create(&heartbeatChecker, NULL, app_check_heartbeat, NULL);
   } else if (type == ZCS_SERVICE_TYPE) {
-   // do nothing?
+    // do nothing? set up in zcs_start
   }
+  return 0;
 }
 
 // Assuming a simple global state for demonstration purposes
