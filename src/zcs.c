@@ -216,10 +216,29 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   return 0;
 }
 
+// int zcs_post_ad(char *ad_name, char *ad_value) {
+//   // Post advertisement to the network
+//   printf("Posting ad: %s = %s\n", ad_name, ad_value);
+//   return 0;
+// }
+
 int zcs_post_ad(char *ad_name, char *ad_value) {
-  // Post advertisement to the network
-  printf("Posting ad: %s = %s\n", ad_name, ad_value);
-  return 0;
+    char message[256]; // Adjust size based on expected message length
+    // Format the advertisement message
+    snprintf(message, sizeof(message), "%s:%s", ad_name, ad_value);
+    mcast_t *channel = (zcs_type == ZCS_APP_TYPE) ? appSendingChannel : serviceSendingChannel;
+
+    // Check if the channel is initialized properly
+    if (channel == NULL) {
+        printf("Error: Multicast channel is not initialized.\n");
+        return -1;
+    }
+
+    // Use multicast_send to post the advertisement
+    if (multicast_send(channel, message, strlen(message)) == -1) {
+        perror("multicast_send failed");
+        return -1;
+    }
 }
 
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
