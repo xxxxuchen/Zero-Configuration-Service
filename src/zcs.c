@@ -187,6 +187,7 @@ void *service_send_heartbeat(void *args) {
   char *serviceName = heartbeatArgs->serviceName;
   char message[256];
   snprintf(message, sizeof(message), "type=HEARTBEAT&name=%s", serviceName);
+  free(heartbeatArgs);
   // send HEARTBEAT message every second
   while (1) {
     sleep(1);
@@ -201,6 +202,7 @@ void *service_listen_discovery(void *args) {
   char *serviceName = discoveryArgs->serviceName;
   int attrNum = discoveryArgs->attrNum;
   zcs_attribute_t *attr = discoveryArgs->attr;
+  free(discoveryArgs);
   char buffer[100];
   multicast_setup_recv(channel);
   while (1) {
@@ -209,8 +211,8 @@ void *service_listen_discovery(void *args) {
     }
     multicast_receive(channel, buffer, 100);
     char *type = NULL;
-    char *receivedServiceName = NULL;
-    decode_type_name(buffer, &type, &receivedServiceName);
+    char *unusedName = NULL;
+    decode_type_name(buffer, &type, &unusedName);
     if (strcmp(type, "DISCOVERY") == 0) {
       // send NOTIFICATION message
       send_notification(channel, serviceName, attr, attrNum);
@@ -268,7 +270,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   HeartbeatSenderArgs *heartbeatArgs =
       (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
   heartbeatArgs->channel = serviceSendingChannel;
-  heartbeatArgs->serviceName = strdup(name);
+  heartbeatArgs->serviceName = name;
   pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
 
   // create a receiving multicast channel for service
@@ -280,16 +282,12 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   DiscoveryListenerArgs *discoveryArgs =
       (DiscoveryListenerArgs *)malloc(sizeof(DiscoveryListenerArgs));
   discoveryArgs->channel = serviceReceivingChannel;
-  discoveryArgs->serviceName = strdup(name);
+  discoveryArgs->serviceName = name;
   discoveryArgs->attrNum = num;
-  discoveryArgs->attr =
-      (zcs_attribute_t *)malloc(num * sizeof(zcs_attribute_t));
-  for (int i = 0; i < num; i++) {
-    discoveryArgs->attr[i].attr_name = strdup(attr[i].attr_name);
-    discoveryArgs->attr[i].value = strdup(attr[i].value);
-  }
+  discoveryArgs->attr = attr;
   pthread_create(&messageListener, NULL, service_listen_discovery,
                  discoveryArgs);
+
   return 0;
 }
 
