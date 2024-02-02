@@ -17,6 +17,7 @@
 
 #define MAX_SERVICE_NUM 20
 #define MAX_ATTR_NUM 10
+#define HEARTBEAT_STALE_TIME 5
 
 typedef struct localTableEntry {
   char *serviceName;
@@ -32,7 +33,8 @@ typedef struct heartbeatSenderArgs {
 } HeartbeatSenderArgs;
 
 typedef struct discoveryListenerArgs {
-  mcast_t *channel;
+  mcast_t *receivingChannel;
+  mcast_t *sendingChannel;
   char *serviceName;
   int attrNum;
   zcs_attribute_t *attr;
@@ -166,12 +168,13 @@ void *app_listen_messages(void *channel) {
 // check if the service is still alive by checking the lastHeartbeat
 void *app_check_heartbeat(void *channel) {
   while (1) {
-    sleep(1);
+    usleep(1000000);  // check every second
     pthread_mutex_lock(&localTableLock);
     for (int i = 0; i < MAX_SERVICE_NUM; i++) {
       if (localTable[i].serviceName != NULL) {
-        // if lastHeartbeat is more than 5 seconds ago, set the status to down
-        if (time(NULL) - localTable[i].lastHeartbeat > 5) {
+        // heartbeat is stale, if the time difference is greater than
+        // HEARTBEAT_STALE_TIME
+        if (time(NULL) - localTable[i].lastHeartbeat > HEARTBEAT_STALE_TIME) {
           localTable[i].status = false;
         }
       }
@@ -190,7 +193,7 @@ void *service_send_heartbeat(void *args) {
   free(heartbeatArgs);
   // send HEARTBEAT message every second
   while (1) {
-    sleep(1);
+    usleep(1000000);
     multicast_send(channel, message, strlen(message));
   }
   return NULL;
@@ -198,24 +201,26 @@ void *service_send_heartbeat(void *args) {
 
 void *service_listen_discovery(void *args) {
   DiscoveryListenerArgs *discoveryArgs = (DiscoveryListenerArgs *)args;
-  mcast_t *channel = discoveryArgs->channel;
+  mcast_t *receiveChannel = discoveryArgs->receivingChannel;
+  mcast_t *sendingChannel = discoveryArgs->sendingChannel;
+
   char *serviceName = discoveryArgs->serviceName;
   int attrNum = discoveryArgs->attrNum;
   zcs_attribute_t *attr = discoveryArgs->attr;
   free(discoveryArgs);
   char buffer[100];
-  multicast_setup_recv(channel);
+  multicast_setup_recv(receiveChannel);
   while (1) {
-    while (multicast_check_receive(channel) == 0) {
+    while (multicast_check_receive(receiveChannel) == 0) {
       printf("repeat..service is checking messages .. \n");
     }
-    multicast_receive(channel, buffer, 100);
+    multicast_receive(receiveChannel, buffer, 100);
     char *type = NULL;
     char *unusedName = NULL;
     decode_type_name(buffer, &type, &unusedName);
     if (strcmp(type, "DISCOVERY") == 0) {
       // send NOTIFICATION message
-      send_notification(channel, serviceName, attr, attrNum);
+      send_notification(sendingChannel, serviceName, attr, attrNum);
     }
   }
   return NULL;
@@ -281,7 +286,8 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   pthread_t messageListener;
   DiscoveryListenerArgs *discoveryArgs =
       (DiscoveryListenerArgs *)malloc(sizeof(DiscoveryListenerArgs));
-  discoveryArgs->channel = serviceReceivingChannel;
+  discoveryArgs->receivingChannel = serviceReceivingChannel;
+  discoveryArgs->sendingChannel = serviceSendingChannel;
   discoveryArgs->serviceName = name;
   discoveryArgs->attrNum = num;
   discoveryArgs->attr = attr;
