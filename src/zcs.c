@@ -11,7 +11,7 @@
 
 #define APP_SEND_CHANNEL_IP "224.1.1.1"
 #define SERVICE_LPORT 1100
-#define SERVICE_SEND_CHANNEL_IP "223.1.1.1"
+#define SERVICE_SEND_CHANNEL_IP "225.1.1.1"
 #define APP_LPORT 1700
 #define UNUSED_PORT 1000
 
@@ -99,7 +99,7 @@ void send_notification(mcast_t *channel, const char *name,
                        zcs_attribute_t attr[], int num) {
   char message[256];
   snprintf(message, sizeof(message), "type=NOTIFICATION&name=%s", name);
-
+// printf("%s\n",name);
   for (int i = 0; i < num && i < MAX_ATTR_NUM; i++) {
     if (attr[i].attr_name != NULL && attr[i].value != NULL) {
       snprintf(message + strlen(message), sizeof(message) - strlen(message),
@@ -119,6 +119,7 @@ void *app_listen_messages(void *channel) {
     while (multicast_check_receive(m) == 0) {
       printf("repeat..app is checking messages .. \n");
     }
+    printf("SOMETHING RECE\n");
     char *type = NULL;
     char *serviceName = NULL;
     multicast_receive(m, buffer, 100);
@@ -238,7 +239,6 @@ int zcs_init(int type) {
     // send DISCOVERY message
     multicast_send(appSendingChannel, "type=DISCOVERY",
                    strlen("type=DISCOVERY"));
-
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);

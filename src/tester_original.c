@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     printf("Source port: %d\n", atoi(argv[1]));
     printf("Destination port: %d\n", atoi(argv[2]));
 
-    mcast_t *m = multicast_init("224.1.1.1", atoi(argv[1]), atoi(argv[2]));
+    mcast_t *m = multicast_init("225.1.1.1", atoi(argv[1]), atoi(argv[2]));
 
     char *msg = argv[3];
     multicast_setup_recv(m);
