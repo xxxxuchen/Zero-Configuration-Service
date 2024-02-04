@@ -15,10 +15,9 @@
 #define APP_LPORT 1700
 #define UNUSED_PORT 1000
 
-
 #define MAX_SERVICE_NUM 20
-#define MAX_ATTR_NUM 10
-#define HEARTBEAT_EXPIRE_TIME 5
+#define MAX_ATTR_NUM 10          // max number of attributes for each service
+#define HEARTBEAT_EXPIRE_TIME 5  // in seconds
 
 typedef struct localTableEntry {
   char *serviceName;
@@ -27,16 +26,6 @@ typedef struct localTableEntry {
   zcs_attribute_t attributes[MAX_ATTR_NUM];
   zcs_cb_f callback;  // callback function for the service
 } LocalTableEntry;
-
-LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
-pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
-
-bool isInitialized = false;
-
-pthread_t messageListener;   // listen for notification and heartbeat (app)
-pthread_t heartbeatChecker;  // check if heartbeat is expire (app)
-pthread_t heartbeatSender;  // send heartbeat (service)
-pthread_t discoveryListener; // listen for discovery from the app node (service)
 
 typedef struct heartbeatSenderArgs {
   mcast_t *channel;
@@ -50,6 +39,20 @@ typedef struct discoveryListenerArgs {
   int attrNum;
   zcs_attribute_t *attr;
 } DiscoveryListenerArgs;
+
+LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
+pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
+
+bool isInitialized = false;
+bool isStarted = false;
+bool isTerminating = false;
+char *serviceName = NULL;
+
+pthread_t messageListener;    // listen for notification and heartbeat (app)
+pthread_t heartbeatChecker;   // check if heartbeat is expire (app)
+pthread_t heartbeatSender;    // send heartbeat (service)
+pthread_t discoveryListener;  // listen for discovery from the app (service)
+pthread_t adListener;         // listen for advertisement from the service (app)
 
 void decode_type_name(char *message, char **type, char **serviceName) {
   char *token = strtok(message, "&");
@@ -65,7 +68,7 @@ void decode_type_name(char *message, char **type, char **serviceName) {
   }
 }
 
-void decode_whole_message(char *message, LocalTableEntry *entry) {
+void decode_notification(char *message, LocalTableEntry *entry) {
   // tokenize the message based on '&'
   char *token = strtok(message, "&");
 
@@ -101,11 +104,29 @@ void decode_whole_message(char *message, LocalTableEntry *entry) {
   }
 }
 
+void decode_advertisement(char *message, char **type, char **serviceName,
+                          char **adName, char **adValue) {
+  char *token = strtok(message, "&");
+  while (token != NULL) {
+    char *key = strtok(token, "=");
+    char *value = strtok(NULL, "=");
+    if (strcmp(key, "type") == 0) {
+      *type = value;
+    } else if (strcmp(key, "name") == 0) {
+      *serviceName = value;
+    } else {
+      *adName = key;
+      *adValue = value;
+    }
+    token = strtok(NULL, "&");
+  }
+}
+
 void send_notification(mcast_t *channel, const char *name,
                        zcs_attribute_t attr[], int num) {
   char message[256];
   snprintf(message, sizeof(message), "type=NOTIFICATION&name=%s", name);
-// printf("%s\n",name);
+  // printf("%s\n",name);
   for (int i = 0; i < num && i < MAX_ATTR_NUM; i++) {
     if (attr[i].attr_name != NULL && attr[i].value != NULL) {
       snprintf(message + strlen(message), sizeof(message) - strlen(message),
@@ -116,6 +137,7 @@ void send_notification(mcast_t *channel, const char *name,
   multicast_send(channel, message, strlen(message));
 }
 
+// messages are Notification and Heartbeat
 void *app_listen_messages(void *channel) {
   mcast_t *m = (mcast_t *)channel;
   char buffer[100];
@@ -146,10 +168,11 @@ void *app_listen_messages(void *channel) {
         pthread_mutex_lock(&localTableLock);
         LocalTableEntry entry;
         // actually no need to assign serviceName here, it would be done inside
-        // the decode_whole_message
+        // the decode_notification
         entry.status = true;
         entry.lastHeartbeat = time(NULL);
-        decode_whole_message(bufferCopy, &entry);
+        entry.callback = NULL;
+        decode_notification(bufferCopy, &entry);
         free(bufferCopy);
         if (index < MAX_SERVICE_NUM) {
           localTable[index++] = entry;
@@ -172,6 +195,7 @@ void *app_listen_messages(void *channel) {
   }
   return NULL;
 }
+
 // check if the service is still alive by checking the lastHeartbeat
 void *app_check_heartbeat(void *channel) {
   while (1) {
@@ -226,12 +250,63 @@ void *service_listen_discovery(void *args) {
     char *unusedName = NULL;
     decode_type_name(buffer, &type, &unusedName);
     if (strcmp(type, "DISCOVERY") == 0) {
-      // send NOTIFICATION message
+      // send NOTIFICATION message if DISCOVERY message is received
       send_notification(sendingChannel, serviceName, attr, attrNum);
     }
   }
   return NULL;
 };
+
+// void *service_send_ads(void *args) {
+//   AdSenderArgs *adArgs = (AdSenderArgs *)args;
+//   mcast_t *channel = adArgs->sendingChannel;
+//   char *serviceName = adArgs->serviceName;
+//   char *adName = adArgs->adName;
+//   char *adValue = adArgs->adValue;
+//   free(adArgs);
+//   char message[256];
+//   snprintf(message, sizeof(message), "type=AD&name=%s&%s=%s", serviceName,
+//            adName, adValue);
+//   // send AD message
+//   multicast_send(channel, message, strlen(message));
+//   return NULL;
+// }
+
+/**
+ * listen for advertisement posted from the service.
+ * decode the ad message and call the callback function
+ * with the decoded ad_name and ad_value.
+ */
+void *app_listen_advertisement(void *channel) {
+  mcast_t *m = (mcast_t *)channel;
+  char buffer[100];
+  multicast_setup_recv(m);
+  while (1) {
+    while (multicast_check_receive(m) == 0) {
+      printf("repeat..app is checking ads .. \n");
+    }
+    multicast_receive(m, buffer, 100);
+    char *type = NULL;
+    char *serviceName = NULL;
+    char *adName = NULL;
+    char *adValue = NULL;
+    decode_advertisement(buffer, &type, &serviceName, &adName, &adValue);
+    if (strcmp(type, "AD") == 0) {
+      pthread_mutex_lock(&localTableLock);
+      for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+        if (localTable[i].serviceName != NULL &&
+            strcmp(localTable[i].serviceName, serviceName) == 0) {
+          if (localTable[i].callback != NULL) {
+            localTable[i].callback(adName, adValue);
+          }
+          break;
+        }
+      }
+      pthread_mutex_unlock(&localTableLock);
+    }
+  }
+  return NULL;
+}
 
 int zcs_init(int type) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
@@ -268,6 +343,9 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
     printf("ZCS not initialized.\n");
     return -1;
   }
+  if (name != NULL) {
+    serviceName = name;
+  }
   // create a sending multicast channel for service
   mcast_t *serviceSendingChannel =
       multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
@@ -297,69 +375,34 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   discoveryArgs->attr = attr;
   pthread_create(&discoveryListener, NULL, service_listen_discovery,
                  discoveryArgs);
-
+  isStarted = true;
   return 0;
 }
 
-// Assuming a simple global state for demonstration purposes
-// static int initialized = 0;
-static char *service_name = NULL;
+// NO NEED TO HAVE THESE VARIABLES，they are already defined in the localTable
+// Entry and MAX_SERVICE_NUM macro. I am keeping them for avoiding syntax error
+// temporarily.
 static zcs_attribute_t *service_attributes = NULL;
 static int service_attr_count = 0;
 
-// int zcs_init(int type) {
-//   if (initialized) {
-//     printf("ZCS already initialized.\n");
-//     return -1;
-//   }
-//   // Initialize network, logging, etc., based on type
-//   initialized = 1;
-//   printf("ZCS initialized with type %d.\n", type);
-//   return 0;
-// }
+int zcs_post_ad(char *ad_name, char *ad_value) {
+  if (!isStarted) {
+    printf("ZCS not started.\n");
+    return 0;
+  }
+  static int postCount = 0;
+  // create a service sending multicast channel
+  mcast_t *serviceSendingChannel =
+      multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
 
-// int zcs_start(char *name, zcs_attribute_t attr[], int num) {
-//   if (!isInitialized) {
-//     printf("ZCS not initialized.\n");
-//     return -1;
-//   }
-//   // Store or advertise the service name and attributes
-//   service_name = strdup(name);
-//   service_attributes = (zcs_attribute_t *)malloc(num * sizeof(zcs_attribute_t));
-//   for (int i = 0; i < num; ++i) {
-//     service_attributes[i].attr_name = strdup(attr[i].attr_name);
-//     service_attributes[i].value = strdup(attr[i].value);
-//   }
-//   service_attr_count = num;
-//   printf("Service %s started.\n", name);
-//   return 0;
-// }
-
-// int zcs_post_ad(char *ad_name, char *ad_value) {
-//   // Post advertisement to the network
-//   printf("Posting ad: %s = %s\n", ad_name, ad_value);
-//   return 0;
-// }
-
-// int zcs_post_ad(char *ad_name, char *ad_value) {
-//   char message[256];  // Adjust size based on expected message length
-//   // Format the advertisement message
-//   snprintf(message, sizeof(message), "%s:%s", ad_name, ad_value);
-//   mcast_t *channel =
-//       (zcs_type == ZCS_APP_TYPE) ? appSendingChannel : serviceSendingChannel;
-
-//   // Check if the channel is initialized properly
-//   if (channel == NULL) {
-//     printf("Error: Multicast channel is not initialized.\n");
-//     return -1;
-//   }
-
-//   // Use multicast_send to post the advertisement
-//   if (multicast_send(channel, message, strlen(message)) == -1) {
-//     perror("multicast_send failed");
-//     return -1;
-//   }
-// }
+  // send advertisement
+  char message[256];
+  snprintf(message, sizeof(message), "type=AD&name=%s&%s=%s", serviceName,
+           ad_name, ad_value);
+  multicast_send(serviceSendingChannel, message, strlen(message));
+  postCount++;
+  return postCount;
+}
 
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
               int namelen) {
@@ -370,7 +413,7 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[],
 
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
   // Retrieve attributes for a service by name
-  if (strcmp(service_name, name) == 0) {
+  if (strcmp(serviceName, name) == 0) {
     int count = (*num < service_attr_count) ? *num : service_attr_count;
     for (int i = 0; i < count; ++i) {
       attr[i].attr_name = strdup(service_attributes[i].attr_name);
@@ -383,21 +426,61 @@ int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
 }
 
 int zcs_listen_ad(char *name, zcs_cb_f cback) {
-  // Listen for advertisements matching 'name', and call cback upon match
-  printf("Listening for ads with name %s.\n", name);
-  return 0;
+  if (!isInitialized) {
+    printf("ZCS not initialized.\n");
+    return -1;
+  }
+  // create a service receiving multicast channel
+  mcast_t *serviceReceivingChannel =
+      multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
+
+  // register the callback function in app's localTableEntry
+  pthread_mutex_lock(&localTableLock);
+  for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+    if (localTable[i].serviceName != NULL &&
+        strcmp(localTable[i].serviceName, name) == 0) {
+      localTable[i].callback = cback;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&localTableLock);
+
+  // listen for advertisement in another thread
+  pthread_create(&adListener, NULL, app_listen_advertisement,
+                 serviceReceivingChannel);
 }
 
+// TODO: implement the shutdown checking logic inside
+// every continuously running thread
 int zcs_shutdown() {
-  // Clean up resources
-  free(service_name);
-  for (int i = 0; i < service_attr_count; ++i) {
-    free(service_attributes[i].attr_name);
-    free(service_attributes[i].value);
+  if (!isStarted) {
+    printf("ZCS not initialized.\n");
+    return -1;
   }
-  free(service_attributes);
-  isInitialized = 0;
-  printf("ZCS shutdown.\n");
+  // set termination flag to true
+  isTerminating = true;
+
+  // TODO: this is temporary, haven't implemented the shutdown logic
+  pthread_join(messageListener, NULL);
+  pthread_join(heartbeatChecker, NULL);
+  pthread_join(heartbeatSender, NULL);
+  pthread_join(discoveryListener, NULL);
+  pthread_join(adListener, NULL);
+
+  // free the serviceName, attr_name, and value in localTable
+  pthread_mutex_lock(&localTableLock);
+  for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+    if (localTable[i].serviceName != NULL) {
+      free(localTable[i].serviceName);
+      for (int j = 0; j < MAX_ATTR_NUM; j++) {
+        if (localTable[i].attributes[j].attr_name != NULL) {
+          free(localTable[i].attributes[j].attr_name);
+          free(localTable[i].attributes[j].value);
+        }
+      }
+    }
+  }
+  pthread_mutex_unlock(&localTableLock);
   return 0;
 }
 
