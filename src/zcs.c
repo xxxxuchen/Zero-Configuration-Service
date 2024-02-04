@@ -314,22 +314,22 @@ static int service_attr_count = 0;
 //   return 0;
 // }
 
-int zcs_start(char *name, zcs_attribute_t attr[], int num) {
-  if (!isInitialized) {
-    printf("ZCS not initialized.\n");
-    return -1;
-  }
-  // Store or advertise the service name and attributes
-  service_name = strdup(name);
-  service_attributes = (zcs_attribute_t *)malloc(num * sizeof(zcs_attribute_t));
-  for (int i = 0; i < num; ++i) {
-    service_attributes[i].attr_name = strdup(attr[i].attr_name);
-    service_attributes[i].value = strdup(attr[i].value);
-  }
-  service_attr_count = num;
-  printf("Service %s started.\n", name);
-  return 0;
-}
+// int zcs_start(char *name, zcs_attribute_t attr[], int num) {
+//   if (!isInitialized) {
+//     printf("ZCS not initialized.\n");
+//     return -1;
+//   }
+//   // Store or advertise the service name and attributes
+//   service_name = strdup(name);
+//   service_attributes = (zcs_attribute_t *)malloc(num * sizeof(zcs_attribute_t));
+//   for (int i = 0; i < num; ++i) {
+//     service_attributes[i].attr_name = strdup(attr[i].attr_name);
+//     service_attributes[i].value = strdup(attr[i].value);
+//   }
+//   service_attr_count = num;
+//   printf("Service %s started.\n", name);
+//   return 0;
+// }
 
 // int zcs_post_ad(char *ad_name, char *ad_value) {
 //   // Post advertisement to the network
@@ -337,25 +337,25 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
 //   return 0;
 // }
 
-int zcs_post_ad(char *ad_name, char *ad_value) {
-  char message[256];  // Adjust size based on expected message length
-  // Format the advertisement message
-  snprintf(message, sizeof(message), "%s:%s", ad_name, ad_value);
-  mcast_t *channel =
-      (zcs_type == ZCS_APP_TYPE) ? appSendingChannel : serviceSendingChannel;
+// int zcs_post_ad(char *ad_name, char *ad_value) {
+//   char message[256];  // Adjust size based on expected message length
+//   // Format the advertisement message
+//   snprintf(message, sizeof(message), "%s:%s", ad_name, ad_value);
+//   mcast_t *channel =
+//       (zcs_type == ZCS_APP_TYPE) ? appSendingChannel : serviceSendingChannel;
 
-  // Check if the channel is initialized properly
-  if (channel == NULL) {
-    printf("Error: Multicast channel is not initialized.\n");
-    return -1;
-  }
+//   // Check if the channel is initialized properly
+//   if (channel == NULL) {
+//     printf("Error: Multicast channel is not initialized.\n");
+//     return -1;
+//   }
 
-  // Use multicast_send to post the advertisement
-  if (multicast_send(channel, message, strlen(message)) == -1) {
-    perror("multicast_send failed");
-    return -1;
-  }
-}
+//   // Use multicast_send to post the advertisement
+//   if (multicast_send(channel, message, strlen(message)) == -1) {
+//     perror("multicast_send failed");
+//     return -1;
+//   }
+// }
 
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
               int namelen) {
@@ -392,7 +392,7 @@ int zcs_shutdown() {
     free(service_attributes[i].value);
   }
   free(service_attributes);
-  initialized = 0;
+  isInitialized = 0;
   printf("ZCS shutdown.\n");
   return 0;
 }
