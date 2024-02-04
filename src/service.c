@@ -1,4 +1,6 @@
 #include <unistd.h>
+#include <stdio.h>
+
 #include "zcs.h"
 
 int main() {
@@ -17,4 +19,3 @@ int main() {
     }
     // rv = zcs_shutdown();
 }
-

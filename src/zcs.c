@@ -15,9 +15,10 @@
 #define APP_LPORT 1700
 #define UNUSED_PORT 1000
 
+
 #define MAX_SERVICE_NUM 20
 #define MAX_ATTR_NUM 10
-#define HEARTBEAT_STALE_TIME 5
+#define HEARTBEAT_EXPIRE_TIME 5
 
 typedef struct localTableEntry {
   char *serviceName;
@@ -26,6 +27,16 @@ typedef struct localTableEntry {
   zcs_attribute_t attributes[MAX_ATTR_NUM];
   zcs_cb_f callback;  // callback function for the service
 } LocalTableEntry;
+
+LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
+pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
+
+bool isInitialized = false;
+
+pthread_t messageListener;   // listen for notification and heartbeat (app)
+pthread_t heartbeatChecker;  // check if heartbeat is expire (app)
+pthread_t heartbeatSender;  // send heartbeat (service)
+pthread_t discoveryListener; // listen for discovery from the app node (service)
 
 typedef struct heartbeatSenderArgs {
   mcast_t *channel;
@@ -39,11 +50,6 @@ typedef struct discoveryListenerArgs {
   int attrNum;
   zcs_attribute_t *attr;
 } DiscoveryListenerArgs;
-
-LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
-pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
-
-bool isInitialized = false;
 
 void decode_type_name(char *message, char **type, char **serviceName) {
   char *token = strtok(message, "&");
@@ -174,8 +180,8 @@ void *app_check_heartbeat(void *channel) {
     for (int i = 0; i < MAX_SERVICE_NUM; i++) {
       if (localTable[i].serviceName != NULL) {
         // heartbeat is stale, if the time difference is greater than
-        // HEARTBEAT_STALE_TIME
-        if (time(NULL) - localTable[i].lastHeartbeat > HEARTBEAT_STALE_TIME) {
+        // HEARTBEAT_EXPIRE_TIME
+        if (time(NULL) - localTable[i].lastHeartbeat > HEARTBEAT_EXPIRE_TIME) {
           localTable[i].status = false;
         }
       }
@@ -244,15 +250,14 @@ int zcs_init(int type) {
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
 
     // listen for messages in another thread
-    pthread_t messageListener;
+
     pthread_create(&messageListener, NULL, app_listen_messages,
                    appReceivingChannel);
 
     // validate the service status in another thread
-    pthread_t heartbeatChecker;
+
     pthread_create(&heartbeatChecker, NULL, app_check_heartbeat, NULL);
   } else if (type == ZCS_SERVICE_TYPE) {
-    // do nothing? set up in zcs_start
   }
   isInitialized = true;
   return 0;
@@ -269,9 +274,8 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
 
   // send NOTIFICATION message
   send_notification(serviceSendingChannel, name, attr, num);
-
   // send HEARTBEAT message periodically in another thread
-  pthread_t heartbeatSender;
+
   HeartbeatSenderArgs *heartbeatArgs =
       (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
   heartbeatArgs->channel = serviceSendingChannel;
@@ -283,7 +287,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
       multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
 
   // listen for discovery in another thread periodically
-  pthread_t messageListener;
+
   DiscoveryListenerArgs *discoveryArgs =
       (DiscoveryListenerArgs *)malloc(sizeof(DiscoveryListenerArgs));
   discoveryArgs->receivingChannel = serviceReceivingChannel;
@@ -291,7 +295,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   discoveryArgs->serviceName = name;
   discoveryArgs->attrNum = num;
   discoveryArgs->attr = attr;
-  pthread_create(&messageListener, NULL, service_listen_discovery,
+  pthread_create(&discoveryListener, NULL, service_listen_discovery,
                  discoveryArgs);
 
   return 0;
