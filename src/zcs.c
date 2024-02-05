@@ -1,5 +1,6 @@
 #include "zcs.h"
 
+#include <assert.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -16,8 +17,8 @@
 #define UNUSED_PORT 1000
 
 #define MAX_SERVICE_NUM 20
-#define MAX_ATTR_NUM 10          // max number of attributes for each service
-#define HEARTBEAT_EXPIRE_TIME 5  // in seconds
+#define MAX_ATTR_NUM 10           // max number of attributes for each service
+#define HEARTBEAT_EXPIRE_TIME 10  // in seconds
 
 typedef struct localTableEntry {
   char *serviceName;
@@ -284,6 +285,7 @@ void *app_listen_advertisement(void *channel) {
   while (1) {
     while (multicast_check_receive(m) == 0) {
       printf("repeat..app is checking ads .. \n");
+      // TODO: termination?
     }
     multicast_receive(m, buffer, 100);
     char *type = NULL;
@@ -291,7 +293,7 @@ void *app_listen_advertisement(void *channel) {
     char *adName = NULL;
     char *adValue = NULL;
     decode_advertisement(buffer, &type, &serviceName, &adName, &adValue);
-    if (strcmp(type, "AD") == 0) {
+    if (strcmp(type, "advertisement") == 0) {
       pthread_mutex_lock(&localTableLock);
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
         if (localTable[i].serviceName != NULL &&
@@ -325,12 +327,10 @@ int zcs_init(int type) {
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
 
     // listen for messages in another thread
-
     pthread_create(&messageListener, NULL, app_listen_messages,
                    appReceivingChannel);
 
     // validate the service status in another thread
-
     pthread_create(&heartbeatChecker, NULL, app_check_heartbeat, NULL);
   } else if (type == ZCS_SERVICE_TYPE) {
   }
@@ -339,13 +339,14 @@ int zcs_init(int type) {
 }
 
 int zcs_start(char *name, zcs_attribute_t attr[], int num) {
+  assert(name != NULL && strlen(name) < 64);
   if (!isInitialized) {
     printf("ZCS not initialized.\n");
     return -1;
   }
-  if (name != NULL) {
-    serviceName = name;
-  }
+  // set global serviceName
+  serviceName = name;
+
   // create a sending multicast channel for service
   mcast_t *serviceSendingChannel =
       multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
@@ -365,7 +366,6 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
       multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
 
   // listen for discovery in another thread periodically
-
   DiscoveryListenerArgs *discoveryArgs =
       (DiscoveryListenerArgs *)malloc(sizeof(DiscoveryListenerArgs));
   discoveryArgs->receivingChannel = serviceReceivingChannel;
@@ -386,6 +386,7 @@ static zcs_attribute_t *service_attributes = NULL;
 static int service_attr_count = 0;
 
 int zcs_post_ad(char *ad_name, char *ad_value) {
+  assert(ad_name != NULL && ad_value != NULL);
   if (!isStarted) {
     printf("ZCS not started.\n");
     return 0;
@@ -397,8 +398,8 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
 
   // send advertisement
   char message[256];
-  snprintf(message, sizeof(message), "type=AD&name=%s&%s=%s", serviceName,
-           ad_name, ad_value);
+  snprintf(message, sizeof(message), "type=advertisement&name=%s&%s=%s",
+           serviceName, ad_name, ad_value);
   multicast_send(serviceSendingChannel, message, strlen(message));
   postCount++;
   return postCount;
@@ -426,10 +427,12 @@ int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
 }
 
 int zcs_listen_ad(char *name, zcs_cb_f cback) {
+  assert(name != NULL && cback != NULL && strlen(name) < 64);
   if (!isInitialized) {
     printf("ZCS not initialized.\n");
     return -1;
   }
+
   // create a service receiving multicast channel
   mcast_t *serviceReceivingChannel =
       multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
