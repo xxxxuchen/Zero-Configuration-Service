@@ -49,7 +49,7 @@ bool isStarted = false;
 bool isTerminating = false;
 // assuming for now that app terminates after all the service nodes terminate
 bool appTerminated = false;
-char *serviceName = NULL;
+char *global_service_name = NULL;
 
 pthread_t messageListener;    // listen for notification and heartbeat (app)
 pthread_t heartbeatChecker;   // check if heartbeat is expire (app)
@@ -356,7 +356,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
     return -1;
   }
   // set global serviceName
-  serviceName = name;
+  global_service_name = name;
 
   // create a sending multicast channel for service
   mcast_t *serviceSendingChannel =
@@ -411,7 +411,7 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
   // send advertisement
   char message[256];
   snprintf(message, sizeof(message), "type=advertisement&name=%s&%s=%s",
-           serviceName, ad_name, ad_value);
+           global_service_name, ad_name, ad_value);
   multicast_send(serviceSendingChannel, message, strlen(message));
   postCount++;
   return postCount;
@@ -426,7 +426,7 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[],
 
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
   // Retrieve attributes for a service by name
-  if (strcmp(serviceName, name) == 0) {
+  if (strcmp(global_service_name, name) == 0) {
     int count = (*num < service_attr_count) ? *num : service_attr_count;
     for (int i = 0; i < count; ++i) {
       attr[i].attr_name = strdup(service_attributes[i].attr_name);
