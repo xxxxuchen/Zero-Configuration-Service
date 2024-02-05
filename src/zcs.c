@@ -19,7 +19,7 @@
 #define MAX_SERVICE_NUM 20
 #define MAX_ATTR_NUM 10           // max number of attributes for each service
 #define HEARTBEAT_EXPIRE_TIME 10  // in seconds
-
+#define APP_MAX_WAIT_TIME 20      // max seconds app waits messages from service
 typedef struct localTableEntry {
   char *serviceName;
   bool status;
@@ -47,6 +47,8 @@ pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
 bool isInitialized = false;
 bool isStarted = false;
 bool isTerminating = false;
+// assuming for now that app terminates after all the service nodes terminate
+bool appTerminated = false;
 char *serviceName = NULL;
 
 pthread_t messageListener;    // listen for notification and heartbeat (app)
@@ -144,8 +146,11 @@ void *app_listen_messages(void *channel) {
   char buffer[100];
   multicast_setup_recv(m);
   int index = 0;
-  while (1) {
+  while (!appTerminated) {
     while (multicast_check_receive(m) == 0) {
+      if (appTerminated) {
+        return NULL;
+      }
       printf("repeat..app is checking messages .. \n");
     }
     printf("SOMETHING RECE\n");
@@ -199,7 +204,7 @@ void *app_listen_messages(void *channel) {
 
 // check if the service is still alive by checking the lastHeartbeat
 void *app_check_heartbeat(void *channel) {
-  while (1) {
+  while (!appTerminated) {
     usleep(1000000);  // check every second
     pthread_mutex_lock(&localTableLock);
     for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -282,10 +287,15 @@ void *app_listen_advertisement(void *channel) {
   mcast_t *m = (mcast_t *)channel;
   char buffer[100];
   multicast_setup_recv(m);
-  while (1) {
+  while (!appTerminated) {
+    int startTime = time(NULL);
     while (multicast_check_receive(m) == 0) {
       printf("repeat..app is checking ads .. \n");
-      // TODO: termination?
+      // if there is no service running within APP_MAX_WAIT_TIME, terminate app
+      if (time(NULL) - startTime > APP_MAX_WAIT_TIME) {
+        appTerminated = true;
+        return NULL;
+      }
     }
     multicast_receive(m, buffer, 100);
     char *type = NULL;
@@ -299,6 +309,7 @@ void *app_listen_advertisement(void *channel) {
         if (localTable[i].serviceName != NULL &&
             strcmp(localTable[i].serviceName, serviceName) == 0) {
           if (localTable[i].callback != NULL) {
+            // call the callback function
             localTable[i].callback(adName, adValue);
           }
           break;
@@ -385,6 +396,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
 static zcs_attribute_t *service_attributes = NULL;
 static int service_attr_count = 0;
 
+// assuming that the post duration and attempt are defined by the caller program
 int zcs_post_ad(char *ad_name, char *ad_value) {
   assert(ad_name != NULL && ad_value != NULL);
   if (!isStarted) {
