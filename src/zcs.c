@@ -97,6 +97,8 @@ void decode_notification(char *message, LocalTableEntry *entry) {
       char *value = equalSign + 1;
       if (strcmp(attr_name, "message_type") == 0) {
         // ignore the type field
+      if (strcmp(attr_name, "message_type") == 0) {
+        // ignore the message_type field
       } else if (strcmp(attr_name, "name") == 0) {
         entry->serviceName = strdup(value);
       } else {
@@ -126,7 +128,7 @@ void decode_advertisement(char *message, char **type, char **serviceName,
   while (token != NULL) {
     char *key = strtok(token, "=");
     char *value = strtok(NULL, "=");
-    if (strcmp(key, "type") == 0) {
+    if (strcmp(key, "message_type") == 0) {
       *type = value;
     } else if (strcmp(key, "name") == 0) {
       *serviceName = value;
@@ -315,12 +317,12 @@ void *app_listen_advertisement(void *channel) {
       }
     }
     multicast_receive(m, buffer, 100);
-    char *type = NULL;
+    char *message_type = NULL;
     char *serviceName = NULL;
     char *adName = NULL;
     char *adValue = NULL;
-    decode_advertisement(buffer, &type, &serviceName, &adName, &adValue);
-    if (strcmp(type, "advertisement") == 0) {
+    decode_advertisement(buffer, &message_type, &serviceName, &adName, &adValue);
+    if (strcmp(message_type, "advertisement") == 0) {
       pthread_mutex_lock(&localTableLock);
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
         if (localTable[i].serviceName != NULL &&
@@ -427,7 +429,7 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
 
   // send advertisement
   char message[256];
-  snprintf(message, sizeof(message), "type=advertisement&name=%s&%s=%s",
+  snprintf(message, sizeof(message), "message_type=advertisement&name=%s&%s=%s",
            global_service_name, ad_name, ad_value);
   multicast_send(serviceSendingChannel, message, strlen(message));
   postCount++;

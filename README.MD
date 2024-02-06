@@ -33,7 +33,7 @@ zcs_listen_ad:
 
 
 ### message format
-- DISCOVERY: "type=DISCOVERY"
-- HEARTBEAT: "type=HEARTBEAT&name=[serviceName]"
-- NOTIFICATION: "type=NOTIFICATION&name=[serviceName]&[attr_name1]=[attr_value1]&[attr_name2]=[attr_value2]..."
-- advertisement: "type=advertisement&name=[serviceName]&[ad_name]=[ad_value]"
+- DISCOVERY: "message_type=DISCOVERY"
+- HEARTBEAT: "message_type=HEARTBEAT&name=[serviceName]"
+- NOTIFICATION: "message_type=NOTIFICATION&name=[serviceName]&[attr_name1]=[attr_value1]&[attr_name2]=[attr_value2]..."
+- advertisement: "message_type=advertisement&name=[serviceName]&[ad_name]=[ad_value]"
