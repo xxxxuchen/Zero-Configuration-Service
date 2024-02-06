@@ -200,7 +200,7 @@ void *app_listen_messages(void *channel) {
         free(bufferCopy);
         if (table_index < MAX_SERVICE_NUM) {
           printf("ADDING SERVICE\n");
-          localTable[(table_index + 1)] = entry;
+          localTable[table_index] = entry;
           table_index = table_index + 1;
         }
         pthread_mutex_unlock(&localTableLock);
