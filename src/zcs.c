@@ -43,6 +43,7 @@ typedef struct discoveryListenerArgs {
 
 LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
 pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
+int table_index = 0; // Table index
 
 bool isInitialized = false;
 bool isStarted = false;
@@ -94,7 +95,7 @@ void decode_notification(char *message, LocalTableEntry *entry) {
       *equalSign = '\0';  // null-terminate to separate name and value
       char *attr_name = token;
       char *value = equalSign + 1;
-      if (strcmp(attr_name, "type") == 0) {
+      if (strcmp(attr_name, "message_type") == 0) {
         // ignore the type field
       } else if (strcmp(attr_name, "name") == 0) {
         entry->serviceName = strdup(value);
@@ -155,7 +156,7 @@ void *app_listen_messages(void *channel) {
   mcast_t *m = (mcast_t *)channel;
   char buffer[100];
   multicast_setup_recv(m);
-  int index = 0;
+  // int index = 0;
   while (!appTerminated) {
     while (multicast_check_receive(m) == 0) {
       if (appTerminated) {
@@ -192,9 +193,10 @@ void *app_listen_messages(void *channel) {
         entry.callback = NULL;
         decode_notification(bufferCopy, &entry);
         free(bufferCopy);
-        if (index < MAX_SERVICE_NUM) {
+        if (table_index < MAX_SERVICE_NUM) {
           printf("ADDING SERVICE\n");
-          localTable[index++] = entry;
+          localTable[(table_index+1)] = entry;
+          table_index=table_index+1;
         }
         pthread_mutex_unlock(&localTableLock);
       }
@@ -385,7 +387,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
       (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
   heartbeatArgs->channel = serviceSendingChannel;
   heartbeatArgs->serviceName = name;
-  pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
+  // pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
@@ -442,12 +444,15 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[],
 
   for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
     for (int j = 0; j < MAX_ATTR_NUM; j++) {
+      if (localTable[i].attributes[j].attr_name != NULL){
+        printf("found attribute %s:%s\n",localTable[i].attributes[j].attr_name,localTable[i].attributes[j].value );
+      }
       if (localTable[i].attributes[j].attr_name != NULL &&
           strcmp(localTable[i].attributes[j].attr_name, attr_name) == 0 &&
           strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
         node_names[found] =
             strdup(localTable[i].serviceName);  // Duplicate string to avoid
-                                                // pointing to freed memory
+         printf("HERE\n");                                       // pointing to freed memory
         found++;
         break;  // Found a match, no need to check further attributes for this
                 // service
