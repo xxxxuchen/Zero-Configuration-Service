@@ -487,6 +487,8 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
   // listen for advertisement in another thread
   pthread_create(&adListener, NULL, app_listen_advertisement,
                  serviceReceivingChannel);
+
+  return 0;
 }
 
 // TODO: implement the shutdown checking logic inside
