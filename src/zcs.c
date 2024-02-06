@@ -43,7 +43,7 @@ typedef struct discoveryListenerArgs {
 
 LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
 pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
-int table_index = 0; // Table index
+int table_index = 0;  // Table index
 
 bool isInitialized = false;
 bool isStarted = false;
@@ -122,19 +122,22 @@ void decode_notification(char *message, LocalTableEntry *entry) {
 
 void decode_advertisement(char *message, char **type, char **serviceName,
                           char **adName, char **adValue) {
-  char *token = strtok(message, "&");
+  char *saveptr1, *saveptr2;
+  char *token = strtok_r(message, "&", &saveptr1);
   while (token != NULL) {
-    char *key = strtok(token, "=");
-    char *value = strtok(NULL, "=");
-    if (strcmp(key, "message_type") == 0) {
-      *type = value;
-    } else if (strcmp(key, "name") == 0) {
-      *serviceName = value;
-    } else {
-      *adName = key;
-      *adValue = value;
+    char *key = strtok_r(token, "=", &saveptr2);
+    char *value = strtok_r(NULL, "=", &saveptr2);
+    if (key != NULL && value != NULL) {
+      if (strcmp(key, "message_type") == 0) {
+        *type = value;
+      } else if (strcmp(key, "name") == 0) {
+        *serviceName = value;
+      } else {
+        *adName = key;
+        *adValue = value;
+      }
     }
-    token = strtok(NULL, "&");
+    token = strtok_r(NULL, "&", &saveptr1);
   }
 }
 
@@ -195,8 +198,8 @@ void *app_listen_messages(void *channel) {
         free(bufferCopy);
         if (table_index < MAX_SERVICE_NUM) {
           printf("ADDING SERVICE\n");
-          localTable[(table_index+1)] = entry;
-          table_index=table_index+1;
+          localTable[(table_index + 1)] = entry;
+          table_index = table_index + 1;
         }
         pthread_mutex_unlock(&localTableLock);
       }
@@ -243,7 +246,8 @@ void *service_send_heartbeat(void *args) {
   mcast_t *channel = heartbeatArgs->channel;
   char *serviceName = heartbeatArgs->serviceName;
   char message[256];
-  snprintf(message, sizeof(message), "message_type=HEARTBEAT&name=%s", serviceName);
+  snprintf(message, sizeof(message), "message_type=HEARTBEAT&name=%s",
+           serviceName);
   free(heartbeatArgs);
   // send HEARTBEAT message every second
   while (1) {
@@ -319,7 +323,8 @@ void *app_listen_advertisement(void *channel) {
     char *serviceName = NULL;
     char *adName = NULL;
     char *adValue = NULL;
-    decode_advertisement(buffer, &message_type, &serviceName, &adName, &adValue);
+    decode_advertisement(buffer, &message_type, &serviceName, &adName,
+                         &adValue);
     if (strcmp(message_type, "advertisement") == 0) {
       pthread_mutex_lock(&localTableLock);
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -387,7 +392,8 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
       (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
   heartbeatArgs->channel = serviceSendingChannel;
   heartbeatArgs->serviceName = name;
-  // pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
+  // pthread_create(&heartbeatSender, NULL, service_send_heartbeat,
+  // heartbeatArgs);
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
@@ -444,15 +450,16 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[],
 
   for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
     for (int j = 0; j < MAX_ATTR_NUM; j++) {
-      if (localTable[i].attributes[j].attr_name != NULL){
-        printf("found attribute %s:%s\n",localTable[i].attributes[j].attr_name,localTable[i].attributes[j].value );
+      if (localTable[i].attributes[j].attr_name != NULL) {
+        printf("found attribute %s:%s\n", localTable[i].attributes[j].attr_name,
+               localTable[i].attributes[j].value);
       }
       if (localTable[i].attributes[j].attr_name != NULL &&
           strcmp(localTable[i].attributes[j].attr_name, attr_name) == 0 &&
           strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
         node_names[found] =
             strdup(localTable[i].serviceName);  // Duplicate string to avoid
-         printf("HERE\n");                                       // pointing to freed memory
+        printf("HERE\n");                       // pointing to freed memory
         found++;
         break;  // Found a match, no need to check further attributes for this
                 // service
@@ -467,13 +474,14 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[],
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
   // Ensure the input parameters are valid
   if (name == NULL || attr == NULL || num == NULL || *num <= 0) {
-    return -1; // Invalid arguments
+    return -1;  // Invalid arguments
   }
 
-  pthread_mutex_lock(&localTableLock); // Ensure thread-safe access
+  pthread_mutex_lock(&localTableLock);  // Ensure thread-safe access
 
   for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-    if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, name) == 0) {
+    if (localTable[i].serviceName != NULL &&
+        strcmp(localTable[i].serviceName, name) == 0) {
       // Found the service, now copy its attributes
       int count = 0;
       for (int j = 0; j < MAX_ATTR_NUM && j < *num; j++) {
@@ -485,23 +493,23 @@ int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
           if (attr[count].attr_name == NULL || attr[count].value == NULL) {
             // Free any allocated strings on error
             for (int k = 0; k <= count; k++) {
-              free(attr[k].attr_name); // It's safe to call free on NULL
+              free(attr[k].attr_name);  // It's safe to call free on NULL
               free(attr[k].value);
             }
             pthread_mutex_unlock(&localTableLock);
-            return -1; // Memory allocation error
+            return -1;  // Memory allocation error
           }
           count++;
         }
       }
-      *num = count; // Update the actual number of attributes copied
+      *num = count;  // Update the actual number of attributes copied
       pthread_mutex_unlock(&localTableLock);
-      return 0; // Successfully retrieved attributes
+      return 0;  // Successfully retrieved attributes
     }
   }
 
   pthread_mutex_unlock(&localTableLock);
-  return -1; // Service not found
+  return -1;  // Service not found
 }
 
 int zcs_listen_ad(char *name, zcs_cb_f cback) {
