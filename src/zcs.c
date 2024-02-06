@@ -20,6 +20,7 @@
 #define MAX_ATTR_NUM 10           // max number of attributes for each service
 #define HEARTBEAT_EXPIRE_TIME 10  // in seconds
 #define APP_MAX_WAIT_TIME 20      // max seconds app waits messages from service
+#define MAX_MESSAGE_LENGTH 256
 typedef struct localTableEntry {
   char *serviceName;
   bool status;
@@ -71,7 +72,7 @@ void decode_type_name(char *message, char **type, char **serviceName) {
     char *value = strtok_r(NULL, "=", &saveptr2);
     if (strcmp(key, "message_type") == 0) {
       *type = value;
-    } else if (strcmp(key, "serviceName") == 0) {
+    } else if (strcmp(key, "name") == 0) {
       *serviceName = value;
     }
     token = strtok_r(NULL, "&", &saveptr1);
@@ -143,7 +144,7 @@ void decode_advertisement(char *message, char **type, char **serviceName,
 
 void send_notification(mcast_t *channel, const char *name,
                        zcs_attribute_t attr[], int num) {
-  char message[256];
+  char message[MAX_MESSAGE_LENGTH];
   snprintf(message, sizeof(message), "message_type=NOTIFICATION&name=%s", name);
   for (int i = 0; i < num && i < MAX_ATTR_NUM; i++) {
     if (attr[i].attr_name != NULL && attr[i].value != NULL) {
@@ -157,7 +158,7 @@ void send_notification(mcast_t *channel, const char *name,
 // messages are Notification and Heartbeat
 void *app_listen_messages(void *channel) {
   mcast_t *m = (mcast_t *)channel;
-  char buffer[100];
+  char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(m);
   // int index = 0;
   while (!appTerminated) {
@@ -169,7 +170,8 @@ void *app_listen_messages(void *channel) {
     }
     char *message_type = NULL;
     char *serviceName = NULL;
-    multicast_receive(m, buffer, 100);
+    multicast_receive(m, buffer, MAX_MESSAGE_LENGTH);
+    printf("buffer when received: %s\n", buffer);
     char *bufferCopy = strdup(buffer);
     decode_type_name(buffer, &message_type, &serviceName);
 
@@ -205,7 +207,6 @@ void *app_listen_messages(void *channel) {
       }
     } else if (strcmp(message_type, "HEARTBEAT") == 0) {
       printf("HEART RECE\n");
-
       // listen for HEARTBEAT message
       pthread_mutex_lock(&localTableLock);
       // set the lastHeartbeat to the current time
@@ -218,6 +219,8 @@ void *app_listen_messages(void *channel) {
       }
       pthread_mutex_unlock(&localTableLock);
     }
+    // clean the buffer
+    memset(buffer, 0, sizeof(buffer));
   }
   return NULL;
 }
@@ -245,7 +248,7 @@ void *service_send_heartbeat(void *args) {
   HeartbeatSenderArgs *heartbeatArgs = (HeartbeatSenderArgs *)args;
   mcast_t *channel = heartbeatArgs->channel;
   char *serviceName = heartbeatArgs->serviceName;
-  char message[256];
+  char message[MAX_MESSAGE_LENGTH];
   snprintf(message, sizeof(message), "message_type=HEARTBEAT&name=%s",
            serviceName);
   free(heartbeatArgs);
@@ -266,13 +269,13 @@ void *service_listen_discovery(void *args) {
   int attrNum = discoveryArgs->attrNum;
   zcs_attribute_t *attr = discoveryArgs->attr;
   free(discoveryArgs);
-  char buffer[100];
+  char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(receiveChannel);
   while (1) {
     while (multicast_check_receive(receiveChannel) == 0) {
       printf("repeat..service is checking messages .. \n");
     }
-    multicast_receive(receiveChannel, buffer, 100);
+    multicast_receive(receiveChannel, buffer, MAX_MESSAGE_LENGTH);
     char *message_type = NULL;
     char *unusedName = NULL;
     decode_type_name(buffer, &message_type, &unusedName);
@@ -306,7 +309,7 @@ void *service_listen_discovery(void *args) {
  */
 void *app_listen_advertisement(void *channel) {
   mcast_t *m = (mcast_t *)channel;
-  char buffer[100];
+  char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(m);
   while (!appTerminated) {
     int startTime = time(NULL);
@@ -318,7 +321,7 @@ void *app_listen_advertisement(void *channel) {
         return NULL;
       }
     }
-    multicast_receive(m, buffer, 100);
+    multicast_receive(m, buffer, MAX_MESSAGE_LENGTH);
     char *message_type = NULL;
     char *serviceName = NULL;
     char *adName = NULL;
@@ -392,8 +395,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
       (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
   heartbeatArgs->channel = serviceSendingChannel;
   heartbeatArgs->serviceName = name;
-  // pthread_create(&heartbeatSender, NULL, service_send_heartbeat,
-  // heartbeatArgs);
+  pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
@@ -413,12 +415,6 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   return 0;
 }
 
-// NO NEED TO HAVE THESE VARIABLES，they are already defined in the localTable
-// Entry and MAX_SERVICE_NUM macro. I am keeping them for avoiding syntax error
-// temporarily.
-static zcs_attribute_t *service_attributes = NULL;
-static int service_attr_count = 0;
-
 // assuming that the post duration and attempt are defined by the caller program
 int zcs_post_ad(char *ad_name, char *ad_value) {
   assert(ad_name != NULL && ad_value != NULL);
@@ -432,7 +428,7 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
       multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
 
   // send advertisement
-  char message[256];
+  char message[MAX_MESSAGE_LENGTH];
   snprintf(message, sizeof(message), "message_type=advertisement&name=%s&%s=%s",
            global_service_name, ad_name, ad_value);
   multicast_send(serviceSendingChannel, message, strlen(message));
