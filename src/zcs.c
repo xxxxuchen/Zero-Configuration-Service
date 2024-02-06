@@ -63,6 +63,9 @@ void decode_type_name(char *message, char **type, char **serviceName) {
   printf("TOKEN: %s\n", token);
   // char *token = strtok(message, "&");
   while (token != NULL) {
+    if (*type != NULL && *serviceName != NULL) {
+      break;
+    }
     char *saveptr2;
     char *key = strtok_r(token, "=", &saveptr2);
     char *value = strtok_r(NULL, "=", &saveptr2);
@@ -80,9 +83,9 @@ void decode_notification(char *message, LocalTableEntry *entry) {
   if (message == NULL) {
     return;
   }
-  
+
   // tokenize the message based on '&'
-  char *saveptr1; // Define save pointer for outer tokenization
+  char *saveptr1;  // Define save pointer for outer tokenization
   char *token = strtok_r(message, "&", &saveptr1);
   // char *token = strtok(message, "&");
 
@@ -435,26 +438,31 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
   return postCount;
 }
 
-int zcs_query(char *attr_name, char *attr_value, char *node_names[], int namelen) {
-    printf("Querying for %s = %s\n", attr_name, attr_value);
+int zcs_query(char *attr_name, char *attr_value, char *node_names[],
+              int namelen) {
+  printf("Querying for %s = %s\n", attr_name, attr_value);
 
-    pthread_mutex_lock(&localTableLock); // Ensure thread-safe access to localTable
-    int found = 0; // Counter for found nodes
-    
-    for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
-        for (int j = 0; j < MAX_ATTR_NUM; j++) {
-            if (localTable[i].attributes[j].attr_name != NULL &&
-                strcmp(localTable[i].attributes[j].attr_name, attr_name) == 0 &&
-                strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
-                node_names[found] = strdup(localTable[i].serviceName); // Duplicate string to avoid pointing to freed memory
-                found++;
-                break; // Found a match, no need to check further attributes for this service
-            }
-        }
+  pthread_mutex_lock(
+      &localTableLock);  // Ensure thread-safe access to localTable
+  int found = 0;         // Counter for found nodes
+
+  for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
+    for (int j = 0; j < MAX_ATTR_NUM; j++) {
+      if (localTable[i].attributes[j].attr_name != NULL &&
+          strcmp(localTable[i].attributes[j].attr_name, attr_name) == 0 &&
+          strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
+        node_names[found] =
+            strdup(localTable[i].serviceName);  // Duplicate string to avoid
+                                                // pointing to freed memory
+        found++;
+        break;  // Found a match, no need to check further attributes for this
+                // service
+      }
     }
-    
-    pthread_mutex_unlock(&localTableLock); // Release lock after access
-    return found; // Return the number of matching nodes found
+  }
+
+  pthread_mutex_unlock(&localTableLock);  // Release lock after access
+  return found;  // Return the number of matching nodes found
 }
 
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
@@ -522,6 +530,8 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
   // listen for advertisement in another thread
   pthread_create(&adListener, NULL, app_listen_advertisement,
                  serviceReceivingChannel);
+
+  return 0;
 }
 
 // TODO: implement the shutdown checking logic inside

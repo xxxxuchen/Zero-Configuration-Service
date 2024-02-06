@@ -1,5 +1,11 @@
 `make start` to start and log into the container
 
+---
+
+`cd /src` 
+- `make app`
+- `make service`
+
 ### some rough ideas
 
 zcs_init: (check app or service node)
