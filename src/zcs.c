@@ -58,22 +58,31 @@ pthread_t discoveryListener;  // listen for discovery from the app (service)
 pthread_t adListener;         // listen for advertisement from the service (app)
 
 void decode_type_name(char *message, char **type, char **serviceName) {
-  char *token = strtok(message, "&");
+  char *saveptr1;
+  char *token = strtok_r(message, "&", &saveptr1);
+  // char *token = strtok(message, "&");
   while (token != NULL) {
-    char *key = strtok(token, "=");
-    char *value = strtok(NULL, "=");
+    char *saveptr2;
+    char *key = strtok_r(token, "=", &saveptr2);
+    char *value = strtok_r(NULL, "=", &saveptr2);
     if (strcmp(key, "type") == 0) {
       *type = value;
     } else if (strcmp(key, "serviceName") == 0) {
       *serviceName = value;
     }
-    token = strtok(NULL, "&");
+    token = strtok_r(NULL, "&", &saveptr1);
   }
 }
 
 void decode_notification(char *message, LocalTableEntry *entry) {
+  if (message == NULL) {
+    return;
+  }
+  
   // tokenize the message based on '&'
-  char *token = strtok(message, "&");
+  char *saveptr1; // Define save pointer for outer tokenization
+  char *token = strtok_r(message, "&", &saveptr1);
+  // char *token = strtok(message, "&");
 
   while (token != NULL) {
     // split each token into attribute name and value based on '='
@@ -103,7 +112,7 @@ void decode_notification(char *message, LocalTableEntry *entry) {
       }
     }
     // move to the next token
-    token = strtok(NULL, "&");
+    token = strtok_r(NULL, "&", &saveptr1);
   }
 }
 
@@ -417,11 +426,26 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
   return postCount;
 }
 
-int zcs_query(char *attr_name, char *attr_value, char *node_names[],
-              int namelen) {
-  // Query the network for services matching attr_name and attr_value
-  printf("Querying for %s = %s\n", attr_name, attr_value);
-  return 0;  // Return number of matching nodes found (up to namelen)
+int zcs_query(char *attr_name, char *attr_value, char *node_names[], int namelen) {
+    printf("Querying for %s = %s\n", attr_name, attr_value);
+
+    pthread_mutex_lock(&localTableLock); // Ensure thread-safe access to localTable
+    int found = 0; // Counter for found nodes
+    
+    for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
+        for (int j = 0; j < MAX_ATTR_NUM; j++) {
+            if (localTable[i].attributes[j].attr_name != NULL &&
+                strcmp(localTable[i].attributes[j].attr_name, attr_name) == 0 &&
+                strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
+                node_names[found] = strdup(localTable[i].serviceName); // Duplicate string to avoid pointing to freed memory
+                found++;
+                break; // Found a match, no need to check further attributes for this service
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&localTableLock); // Release lock after access
+    return found; // Return the number of matching nodes found
 }
 
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
