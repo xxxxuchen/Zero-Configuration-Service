@@ -121,7 +121,7 @@ void decode_notification(char *message, LocalTableEntry *entry) {
     token = strtok_r(NULL, "&", &saveptr1);
   }
 }
-
+}
 void decode_advertisement(char *message, char **type, char **serviceName,
                           char **adName, char **adValue) {
   char *token = strtok(message, "&");
