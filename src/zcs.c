@@ -60,7 +60,6 @@ pthread_t adListener;         // listen for advertisement from the service (app)
 void decode_type_name(char *message, char **type, char **serviceName) {
   char *saveptr1;
   char *token = strtok_r(message, "&", &saveptr1);
-  printf("TOKEN: %s\n", token);
   // char *token = strtok(message, "&");
   while (token != NULL) {
     if (*type != NULL && *serviceName != NULL) {
@@ -69,7 +68,6 @@ void decode_type_name(char *message, char **type, char **serviceName) {
     char *saveptr2;
     char *key = strtok_r(token, "=", &saveptr2);
     char *value = strtok_r(NULL, "=", &saveptr2);
-    printf("%s, and %s\n",key,value);
     if (strcmp(key, "message_type") == 0) {
       *type = value;
     } else if (strcmp(key, "serviceName") == 0) {
@@ -143,14 +141,12 @@ void send_notification(mcast_t *channel, const char *name,
                        zcs_attribute_t attr[], int num) {
   char message[256];
   snprintf(message, sizeof(message), "message_type=NOTIFICATION&name=%s", name);
-  printf("%s\n",message);
   for (int i = 0; i < num && i < MAX_ATTR_NUM; i++) {
     if (attr[i].attr_name != NULL && attr[i].value != NULL) {
       snprintf(message + strlen(message), sizeof(message) - strlen(message),
                "&%s=%s", attr[i].attr_name, attr[i].value);
     }
   }
-  printf("%s\n",message);
   multicast_send(channel, message, strlen(message));
 }
 
@@ -172,8 +168,6 @@ void *app_listen_messages(void *channel) {
     multicast_receive(m, buffer, 100);
     char *bufferCopy = strdup(buffer);
     decode_type_name(buffer, &message_type, &serviceName);
-    printf("msg type:%s\n", message_type);
-        printf("service name:%s\n", serviceName);
 
     // check if it is NOTIFICATION message or HEARTBEAT message
     if (strcmp(message_type, "NOTIFICATION") == 0) {
@@ -387,11 +381,11 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   send_notification(serviceSendingChannel, name, attr, num);
   // send HEARTBEAT message periodically in another thread
 
-  // HeartbeatSenderArgs *heartbeatArgs =
-  //     (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
-  // heartbeatArgs->channel = serviceSendingChannel;
-  // heartbeatArgs->serviceName = name;
-  // pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
+  HeartbeatSenderArgs *heartbeatArgs =
+      (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
+  heartbeatArgs->channel = serviceSendingChannel;
+  heartbeatArgs->serviceName = name;
+  pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
