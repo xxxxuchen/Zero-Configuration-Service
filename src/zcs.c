@@ -60,12 +60,14 @@ pthread_t adListener;         // listen for advertisement from the service (app)
 void decode_type_name(char *message, char **type, char **serviceName) {
   char *saveptr1;
   char *token = strtok_r(message, "&", &saveptr1);
+  printf("TOKEN: %s\n", token);
   // char *token = strtok(message, "&");
   while (token != NULL) {
     char *saveptr2;
     char *key = strtok_r(token, "=", &saveptr2);
     char *value = strtok_r(NULL, "=", &saveptr2);
-    if (strcmp(key, "type") == 0) {
+    printf("%s, and %s\n",key,value);
+    if (strcmp(key, "message_type") == 0) {
       *type = value;
     } else if (strcmp(key, "serviceName") == 0) {
       *serviceName = value;
@@ -137,15 +139,15 @@ void decode_advertisement(char *message, char **type, char **serviceName,
 void send_notification(mcast_t *channel, const char *name,
                        zcs_attribute_t attr[], int num) {
   char message[256];
-  snprintf(message, sizeof(message), "type=NOTIFICATION&name=%s", name);
-  // printf("%s\n",name);
+  snprintf(message, sizeof(message), "message_type=NOTIFICATION&name=%s", name);
+  printf("%s\n",message);
   for (int i = 0; i < num && i < MAX_ATTR_NUM; i++) {
     if (attr[i].attr_name != NULL && attr[i].value != NULL) {
       snprintf(message + strlen(message), sizeof(message) - strlen(message),
                "&%s=%s", attr[i].attr_name, attr[i].value);
     }
   }
-
+  printf("%s\n",message);
   multicast_send(channel, message, strlen(message));
 }
 
@@ -162,14 +164,18 @@ void *app_listen_messages(void *channel) {
       }
       printf("repeat..app is checking messages .. \n");
     }
-    printf("SOMETHING RECE\n");
-    char *type = NULL;
+    char *message_type = NULL;
     char *serviceName = NULL;
     multicast_receive(m, buffer, 100);
     char *bufferCopy = strdup(buffer);
-    decode_type_name(buffer, &type, &serviceName);
+    decode_type_name(buffer, &message_type, &serviceName);
+    printf("msg type:%s\n", message_type);
+        printf("service name:%s\n", serviceName);
+
     // check if it is NOTIFICATION message or HEARTBEAT message
-    if (strcmp(type, "NOTIFICATION") == 0) {
+    if (strcmp(message_type, "NOTIFICATION") == 0) {
+      printf("NOTIF RECE\n");
+
       bool serviceExists = false;
       // if there is already an entry for the service, skip
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -190,11 +196,14 @@ void *app_listen_messages(void *channel) {
         decode_notification(bufferCopy, &entry);
         free(bufferCopy);
         if (index < MAX_SERVICE_NUM) {
+          printf("ADDING SERVICE\n");
           localTable[index++] = entry;
         }
         pthread_mutex_unlock(&localTableLock);
       }
-    } else if (strcmp(type, "HEARTBEAT") == 0) {
+    } else if (strcmp(message_type, "HEARTBEAT") == 0) {
+      printf("HEART RECE\n");
+
       // listen for HEARTBEAT message
       pthread_mutex_lock(&localTableLock);
       // set the lastHeartbeat to the current time
@@ -235,7 +244,7 @@ void *service_send_heartbeat(void *args) {
   mcast_t *channel = heartbeatArgs->channel;
   char *serviceName = heartbeatArgs->serviceName;
   char message[256];
-  snprintf(message, sizeof(message), "type=HEARTBEAT&name=%s", serviceName);
+  snprintf(message, sizeof(message), "message_type=HEARTBEAT&name=%s", serviceName);
   free(heartbeatArgs);
   // send HEARTBEAT message every second
   while (1) {
@@ -261,10 +270,10 @@ void *service_listen_discovery(void *args) {
       printf("repeat..service is checking messages .. \n");
     }
     multicast_receive(receiveChannel, buffer, 100);
-    char *type = NULL;
+    char *message_type = NULL;
     char *unusedName = NULL;
-    decode_type_name(buffer, &type, &unusedName);
-    if (strcmp(type, "DISCOVERY") == 0) {
+    decode_type_name(buffer, &message_type, &unusedName);
+    if (strcmp(message_type, "DISCOVERY") == 0) {
       // send NOTIFICATION message if DISCOVERY message is received
       send_notification(sendingChannel, serviceName, attr, attrNum);
     }
@@ -340,8 +349,8 @@ int zcs_init(int type) {
     mcast_t *appSendingChannel =
         multicast_init(APP_SEND_CHANNEL_IP, SERVICE_LPORT, UNUSED_PORT);
     // send DISCOVERY message
-    multicast_send(appSendingChannel, "type=DISCOVERY",
-                   strlen("type=DISCOVERY"));
+    multicast_send(appSendingChannel, "message_type=DISCOVERY",
+                   strlen("message_type=DISCOVERY"));
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
@@ -375,11 +384,11 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   send_notification(serviceSendingChannel, name, attr, num);
   // send HEARTBEAT message periodically in another thread
 
-  HeartbeatSenderArgs *heartbeatArgs =
-      (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
-  heartbeatArgs->channel = serviceSendingChannel;
-  heartbeatArgs->serviceName = name;
-  pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
+  // HeartbeatSenderArgs *heartbeatArgs =
+  //     (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
+  // heartbeatArgs->channel = serviceSendingChannel;
+  // heartbeatArgs->serviceName = name;
+  // pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
@@ -449,17 +458,43 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[], int namelen
 }
 
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num) {
-  // Retrieve attributes for a service by name
-  if (strcmp(global_service_name, name) == 0) {
-    int count = (*num < service_attr_count) ? *num : service_attr_count;
-    for (int i = 0; i < count; ++i) {
-      attr[i].attr_name = strdup(service_attributes[i].attr_name);
-      attr[i].value = strdup(service_attributes[i].value);
-    }
-    *num = count;
-    return 0;
+  // Ensure the input parameters are valid
+  if (name == NULL || attr == NULL || num == NULL || *num <= 0) {
+    return -1; // Invalid arguments
   }
-  return -1;  // Service not found
+
+  pthread_mutex_lock(&localTableLock); // Ensure thread-safe access
+
+  for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+    if (localTable[i].serviceName != NULL && strcmp(localTable[i].serviceName, name) == 0) {
+      // Found the service, now copy its attributes
+      int count = 0;
+      for (int j = 0; j < MAX_ATTR_NUM && j < *num; j++) {
+        if (localTable[i].attributes[j].attr_name != NULL) {
+          attr[count].attr_name = strdup(localTable[i].attributes[j].attr_name);
+          attr[count].value = strdup(localTable[i].attributes[j].value);
+
+          // Check for strdup failure
+          if (attr[count].attr_name == NULL || attr[count].value == NULL) {
+            // Free any allocated strings on error
+            for (int k = 0; k <= count; k++) {
+              free(attr[k].attr_name); // It's safe to call free on NULL
+              free(attr[k].value);
+            }
+            pthread_mutex_unlock(&localTableLock);
+            return -1; // Memory allocation error
+          }
+          count++;
+        }
+      }
+      *num = count; // Update the actual number of attributes copied
+      pthread_mutex_unlock(&localTableLock);
+      return 0; // Successfully retrieved attributes
+    }
+  }
+
+  pthread_mutex_unlock(&localTableLock);
+  return -1; // Service not found
 }
 
 int zcs_listen_ad(char *name, zcs_cb_f cback) {
