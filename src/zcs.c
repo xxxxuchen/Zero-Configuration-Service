@@ -94,8 +94,8 @@ void decode_notification(char *message, LocalTableEntry *entry) {
       *equalSign = '\0';  // null-terminate to separate name and value
       char *attr_name = token;
       char *value = equalSign + 1;
-      if (strcmp(attr_name, "type") == 0) {
-        // ignore the type field
+      if (strcmp(attr_name, "message_type") == 0) {
+        // ignore the message_type field
       } else if (strcmp(attr_name, "name") == 0) {
         entry->serviceName = strdup(value);
       } else {
