@@ -573,5 +573,25 @@ int zcs_shutdown() {
 
 void zcs_log() {
   // Implement logging functionality
-  printf("ZCS log function called.\n");
+    pthread_mutex_lock(&localTableLock);  
+
+    printf("Current Services Status:\n");
+    printf("%-25s %-10s %-20s\n", "Service Name", "Status", "Last Heartbeat");
+
+    for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+        if (localTable[i].serviceName != NULL) { // Check if entry is used
+            char buffer[26]; // Buffer to hold the formatted date and time
+            time_t heartbeatTime = (time_t)localTable[i].lastHeartbeat;
+            struct tm* tm_info = localtime(&heartbeatTime);
+
+            strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info); // Format time into string
+
+            printf("%-25s %-10s %-20s\n",
+                   localTable[i].serviceName,
+                   localTable[i].status ? "UP" : "DOWN",
+                   buffer);
+        }
+    }
+
+    pthread_mutex_unlock(&localTableLock); // Release lock
 }
