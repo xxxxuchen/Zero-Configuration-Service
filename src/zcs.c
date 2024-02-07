@@ -48,14 +48,14 @@ int table_index = 0;  // Table index
 
 bool isInitialized = false;
 bool isStarted = false;
-bool isTerminating = false;
+bool serviceTerminated = false;
 // assuming for now that app terminates after all the service nodes terminate
 bool appTerminated = false;
 char *global_service_name = NULL;
 
-pthread_t messageListener;    // listen for notification, heartbeat, and ad (app)
-pthread_t heartbeatChecker;   // check if heartbeat is expire (app)
-pthread_t heartbeatSender;    // send heartbeat (service)
+pthread_t messageListener;   // listen for notification, heartbeat, and ad (app)
+pthread_t heartbeatChecker;  // check if heartbeat is expire (app)
+pthread_t heartbeatSender;   // send heartbeat (service)
 pthread_t discoveryListener;  // listen for discovery from the app (service)
 
 void decode_type_name(char *message, char **type, char **serviceName) {
@@ -170,6 +170,7 @@ void *app_listen_messages(void *channel) {
     char *message_type = NULL;
     char *serviceName = NULL;
     multicast_receive(m, buffer, MAX_MESSAGE_LENGTH);
+    // save the original message before it gets modified by strtok
     char *bufferCopy = strdup(buffer);
     decode_type_name(buffer, &message_type, &serviceName);
 
@@ -268,7 +269,7 @@ void *service_send_heartbeat(void *args) {
            serviceName);
   free(heartbeatArgs);
   // send HEARTBEAT message every second
-  while (1) {
+  while (!serviceTerminated) {
     usleep(1000000);
     multicast_send(channel, message, strlen(message));
   }
@@ -286,8 +287,11 @@ void *service_listen_discovery(void *args) {
   free(discoveryArgs);
   char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(receiveChannel);
-  while (1) {
+  while (!serviceTerminated) {
     while (multicast_check_receive(receiveChannel) == 0) {
+      if (serviceTerminated) {
+        return NULL;
+      }
       printf("repeat..service is checking messages .. \n");
     }
     multicast_receive(receiveChannel, buffer, MAX_MESSAGE_LENGTH);
@@ -387,7 +391,8 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   return 0;
 }
 
-// assuming that the post duration and attempt are defined by the caller program
+// assuming that the post duration and attempt are defined by the caller
+// program!!!!
 int zcs_post_ad(char *ad_name, char *ad_value) {
   assert(ad_name != NULL && ad_value != NULL);
   if (!isStarted) {
@@ -501,22 +506,22 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
   return 0;
 }
 
-// TODO: implement the shutdown checking logic inside
-// every continuously running thread
+// terminate the service and app, clean up the memory
 int zcs_shutdown() {
   if (!isStarted) {
     printf("ZCS not initialized.\n");
     return -1;
   }
-  // set termination flag to true
-  isTerminating = true;
+  // service terminates first, which will then cause apps to terminate
+  serviceTerminated = true;
 
-  // TODO: this is temporary, haven't implemented the shutdown logic
+  // wait for all the threads to finish
   pthread_join(messageListener, NULL);
   pthread_join(heartbeatChecker, NULL);
   pthread_join(heartbeatSender, NULL);
   pthread_join(discoveryListener, NULL);
 
+  // all the threads have finished, safe to clean up the memory
   // free the serviceName, attr_name, and value in localTable
   pthread_mutex_lock(&localTableLock);
   for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -536,25 +541,24 @@ int zcs_shutdown() {
 
 void zcs_log() {
   // Implement logging functionality
-    pthread_mutex_lock(&localTableLock);  
+  pthread_mutex_lock(&localTableLock);
 
-    printf("Current Services Status:\n");
-    printf("%-25s %-10s %-20s\n", "Service Name", "Status", "Last Heartbeat");
+  printf("Current Services Status:\n");
+  printf("%-25s %-10s %-20s\n", "Service Name", "Status", "Last Heartbeat");
 
-    for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        if (localTable[i].serviceName != NULL) { // Check if entry is used
-            char buffer[26]; // Buffer to hold the formatted date and time
-            time_t heartbeatTime = (time_t)localTable[i].lastHeartbeat;
-            struct tm* tm_info = localtime(&heartbeatTime);
+  for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+    if (localTable[i].serviceName != NULL) {  // Check if entry is used
+      char buffer[26];  // Buffer to hold the formatted date and time
+      time_t heartbeatTime = (time_t)localTable[i].lastHeartbeat;
+      struct tm *tm_info = localtime(&heartbeatTime);
 
-            strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info); // Format time into string
+      strftime(buffer, 26, "%Y-%m-%d %H:%M:%S",
+               tm_info);  // Format time into string
 
-            printf("%-25s %-10s %-20s\n",
-                   localTable[i].serviceName,
-                   localTable[i].status ? "UP" : "DOWN",
-                   buffer);
-        }
+      printf("%-25s %-10s %-20s\n", localTable[i].serviceName,
+             localTable[i].status ? "UP" : "DOWN", buffer);
     }
+  }
 
-    pthread_mutex_unlock(&localTableLock); // Release lock
+  pthread_mutex_unlock(&localTableLock);  // Release lock
 }
