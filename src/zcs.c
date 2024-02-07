@@ -53,11 +53,10 @@ bool isTerminating = false;
 bool appTerminated = false;
 char *global_service_name = NULL;
 
-pthread_t messageListener;    // listen for notification and heartbeat (app)
+pthread_t messageListener;    // listen for notification, heartbeat, and ad (app)
 pthread_t heartbeatChecker;   // check if heartbeat is expire (app)
 pthread_t heartbeatSender;    // send heartbeat (service)
 pthread_t discoveryListener;  // listen for discovery from the app (service)
-pthread_t adListener;         // listen for advertisement from the service (app)
 
 void decode_type_name(char *message, char **type, char **serviceName) {
   char *saveptr1;
@@ -121,20 +120,16 @@ void decode_notification(char *message, LocalTableEntry *entry) {
   }
 }
 
-void decode_advertisement(char *message, char **type, char **serviceName,
-                          char **adName, char **adValue) {
+void decode_advertisement(char *message, char **adName, char **adValue) {
   char *saveptr1, *saveptr2;
   char *token = strtok_r(message, "&", &saveptr1);
   while (token != NULL) {
     char *key = strtok_r(token, "=", &saveptr2);
     char *value = strtok_r(NULL, "=", &saveptr2);
     if (key != NULL && value != NULL) {
-      if (strcmp(key, "message_type") == 0) {
-        *type = value;
-      } else if (strcmp(key, "name") == 0) {
-        *serviceName = value;
-      } else {
-        *adName = key;
+      if (strcmp(key, "name") == 0) {
+        *adName = value;
+      } else if (strcmp(key, "value") == 0) {
         *adValue = value;
       }
     }
@@ -155,30 +150,32 @@ void send_notification(mcast_t *channel, const char *name,
   multicast_send(channel, message, strlen(message));
 }
 
-// messages are Notification and Heartbeat
+// messages are NOTIFICATION, HEARTBEAT, and ADVERTISEMENT.
+// all in this one thread
 void *app_listen_messages(void *channel) {
   mcast_t *m = (mcast_t *)channel;
   char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(m);
   // int index = 0;
   while (!appTerminated) {
+    int startTime = time(NULL);
     while (multicast_check_receive(m) == 0) {
-      if (appTerminated) {
+      printf("repeat..app is checking messages .. \n");
+      // if there is no service running within APP_MAX_WAIT_TIME, terminate app
+      if (time(NULL) - startTime > APP_MAX_WAIT_TIME) {
+        appTerminated = true;
         return NULL;
       }
-      printf("repeat..app is checking messages .. \n");
     }
     char *message_type = NULL;
     char *serviceName = NULL;
     multicast_receive(m, buffer, MAX_MESSAGE_LENGTH);
-    printf("buffer when received: %s\n", buffer);
     char *bufferCopy = strdup(buffer);
     decode_type_name(buffer, &message_type, &serviceName);
 
     // check if it is NOTIFICATION message or HEARTBEAT message
     if (strcmp(message_type, "NOTIFICATION") == 0) {
-      printf("NOTIF RECE\n");
-
+      printf("Notification received from %s\n", serviceName);
       bool serviceExists = false;
       // if there is already an entry for the service, skip
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -206,7 +203,7 @@ void *app_listen_messages(void *channel) {
         pthread_mutex_unlock(&localTableLock);
       }
     } else if (strcmp(message_type, "HEARTBEAT") == 0) {
-      printf("HEART RECE\n");
+      printf("Heartbeat received from %s\n", serviceName);
       // listen for HEARTBEAT message
       pthread_mutex_lock(&localTableLock);
       // set the lastHeartbeat to the current time
@@ -214,6 +211,24 @@ void *app_listen_messages(void *channel) {
         if (localTable[i].serviceName != NULL &&
             strcmp(localTable[i].serviceName, serviceName) == 0) {
           localTable[i].lastHeartbeat = time(NULL);
+          break;
+        }
+      }
+      pthread_mutex_unlock(&localTableLock);
+    } else if (strcmp(message_type, "advertisement") == 0) {
+      printf("Advertisement received from %s\n", serviceName);
+      char *adName = NULL;
+      char *adValue = NULL;
+      decode_advertisement(bufferCopy, &adName, &adValue);
+      free(bufferCopy);
+      pthread_mutex_lock(&localTableLock);
+      for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+        if (localTable[i].serviceName != NULL &&
+            strcmp(localTable[i].serviceName, serviceName) == 0) {
+          if (localTable[i].callback != NULL) {
+            // call the callback function
+            localTable[i].callback(adName, adValue);
+          }
           break;
         }
       }
@@ -280,6 +295,7 @@ void *service_listen_discovery(void *args) {
     char *unusedName = NULL;
     decode_type_name(buffer, &message_type, &unusedName);
     if (strcmp(message_type, "DISCOVERY") == 0) {
+      printf("Service: %s received DISCOVERY message\n", serviceName);
       // send NOTIFICATION message if DISCOVERY message is received
       send_notification(sendingChannel, serviceName, attr, attrNum);
     }
@@ -301,50 +317,6 @@ void *service_listen_discovery(void *args) {
 //   multicast_send(channel, message, strlen(message));
 //   return NULL;
 // }
-
-/**
- * listen for advertisement posted from the service.
- * decode the ad message and call the callback function
- * with the decoded ad_name and ad_value.
- */
-void *app_listen_advertisement(void *channel) {
-  mcast_t *m = (mcast_t *)channel;
-  char buffer[MAX_MESSAGE_LENGTH];
-  multicast_setup_recv(m);
-  while (!appTerminated) {
-    int startTime = time(NULL);
-    while (multicast_check_receive(m) == 0) {
-      printf("repeat..app is checking ads .. \n");
-      // if there is no service running within APP_MAX_WAIT_TIME, terminate app
-      if (time(NULL) - startTime > APP_MAX_WAIT_TIME) {
-        appTerminated = true;
-        return NULL;
-      }
-    }
-    multicast_receive(m, buffer, MAX_MESSAGE_LENGTH);
-    char *message_type = NULL;
-    char *serviceName = NULL;
-    char *adName = NULL;
-    char *adValue = NULL;
-    decode_advertisement(buffer, &message_type, &serviceName, &adName,
-                         &adValue);
-    if (strcmp(message_type, "advertisement") == 0) {
-      pthread_mutex_lock(&localTableLock);
-      for (int i = 0; i < MAX_SERVICE_NUM; i++) {
-        if (localTable[i].serviceName != NULL &&
-            strcmp(localTable[i].serviceName, serviceName) == 0) {
-          if (localTable[i].callback != NULL) {
-            // call the callback function
-            localTable[i].callback(adName, adValue);
-          }
-          break;
-        }
-      }
-      pthread_mutex_unlock(&localTableLock);
-    }
-  }
-  return NULL;
-}
 
 int zcs_init(int type) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
@@ -515,10 +487,6 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
     return -1;
   }
 
-  // create a service receiving multicast channel
-  mcast_t *serviceReceivingChannel =
-      multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
-
   // register the callback function in app's localTableEntry
   pthread_mutex_lock(&localTableLock);
   for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -529,10 +497,6 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
     }
   }
   pthread_mutex_unlock(&localTableLock);
-
-  // listen for advertisement in another thread
-  pthread_create(&adListener, NULL, app_listen_advertisement,
-                 serviceReceivingChannel);
 
   return 0;
 }
@@ -552,7 +516,6 @@ int zcs_shutdown() {
   pthread_join(heartbeatChecker, NULL);
   pthread_join(heartbeatSender, NULL);
   pthread_join(discoveryListener, NULL);
-  pthread_join(adListener, NULL);
 
   // free the serviceName, attr_name, and value in localTable
   pthread_mutex_lock(&localTableLock);
