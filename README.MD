@@ -14,8 +14,8 @@ zcs_init: (check app or service node)
   2. create a local table 
   3. send DISCOVERY - once
   4. create a app receiving channel
-  5. listen NOTIFICATION, HEARTBEAT periodically (in another thread)
-      - update the local table
+  5. listen NOTIFICATION, HEARTBEAT, and advertisement periodically (in another thread)
+      - update the local table or call the callback function
 - if service (assume a service node doesn't maintain a local table)
   
 
