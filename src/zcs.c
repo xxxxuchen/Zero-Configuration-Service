@@ -215,9 +215,6 @@ void *app_listen_messages(void *channel) {
       char *adName = NULL;
       char *adValue = NULL;
       decode_advertisement(bufferCopy, &adName, &adValue);
-      printf("service name: %s\n", serviceName);
-      printf("Ad name: %s, Ad value: %s\n", adName, adValue);
-      free(bufferCopy);
       pthread_mutex_lock(&localTableLock);
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
         if (localTable[i].serviceName != NULL &&
@@ -225,11 +222,11 @@ void *app_listen_messages(void *channel) {
           if (localTable[i].callback != NULL) {
             // call the callback function
             localTable[i].callback(adName, adValue);
-            printf("Callback function called\n");
           }
           break;
         }
       }
+      free(bufferCopy);
       pthread_mutex_unlock(&localTableLock);
     }
     // clean the buffer
