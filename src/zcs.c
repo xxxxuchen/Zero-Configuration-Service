@@ -48,9 +48,6 @@ int table_index = 0;  // Table index
 
 bool isInitialized = false;
 bool isStarted = false;
-bool serviceTerminated = false;
-// assuming for now that app terminates after all the service nodes terminate
-bool appTerminated = false;
 char *global_service_name = NULL;
 
 pthread_t messageListener;   // listen for notification, heartbeat, and ad (app)
@@ -157,15 +154,9 @@ void *app_listen_messages(void *channel) {
   char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(m);
   // int index = 0;
-  while (!appTerminated) {
-    int startTime = time(NULL);
+  while (1) {
     while (multicast_check_receive(m) == 0) {
       printf("repeat..app is checking messages .. \n");
-      // if there is no service running within APP_MAX_WAIT_TIME, terminate app
-      if (time(NULL) - startTime > APP_MAX_WAIT_TIME) {
-        appTerminated = true;
-        return NULL;
-      }
     }
     char *message_type = NULL;
     char *serviceName = NULL;
@@ -243,7 +234,7 @@ void *app_listen_messages(void *channel) {
 
 // check if the service is still alive by checking the lastHeartbeat
 void *app_check_heartbeat(void *channel) {
-  while (!appTerminated) {
+  while (1) {
     usleep(1000000);  // check every second
     pthread_mutex_lock(&localTableLock);
     for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -269,7 +260,7 @@ void *service_send_heartbeat(void *args) {
            serviceName);
   free(heartbeatArgs);
   // send HEARTBEAT message every second
-  while (!serviceTerminated) {
+  while (1) {
     usleep(1000000);
     multicast_send(channel, message, strlen(message));
   }
@@ -287,11 +278,8 @@ void *service_listen_discovery(void *args) {
   free(discoveryArgs);
   char buffer[MAX_MESSAGE_LENGTH];
   multicast_setup_recv(receiveChannel);
-  while (!serviceTerminated) {
+  while (1) {
     while (multicast_check_receive(receiveChannel) == 0) {
-      if (serviceTerminated) {
-        return NULL;
-      }
       printf("repeat..service is checking messages .. \n");
     }
     multicast_receive(receiveChannel, buffer, MAX_MESSAGE_LENGTH);
@@ -512,8 +500,6 @@ int zcs_shutdown() {
     printf("ZCS not initialized.\n");
     return -1;
   }
-  // service terminates first, which will then cause apps to terminate
-  serviceTerminated = true;
 
   // wait for all the threads to finish
   pthread_join(messageListener, NULL);
