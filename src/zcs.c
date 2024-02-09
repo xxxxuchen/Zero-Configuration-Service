@@ -21,6 +21,7 @@
 #define HEARTBEAT_EXPIRE_TIME 10  // in seconds
 #define APP_MAX_WAIT_TIME 20      // max seconds app waits messages from service
 #define MAX_MESSAGE_LENGTH 256
+#define QUERY_WAIT_TIME 3  // seconds
 typedef struct localTableEntry {
   char *serviceName;
   bool status;
@@ -124,9 +125,9 @@ void decode_advertisement(char *message, char **adName, char **adValue) {
     char *key = strtok_r(token, "=", &saveptr2);
     char *value = strtok_r(NULL, "=", &saveptr2);
     if (key != NULL && value != NULL) {
-      if (strcmp(key, "name") == 0) {
+      if (strcmp(key, "ad_name") == 0) {
         *adName = value;
-      } else if (strcmp(key, "value") == 0) {
+      } else if (strcmp(key, "ad_value") == 0) {
         *adValue = value;
       }
     }
@@ -144,6 +145,7 @@ void send_notification(mcast_t *channel, const char *name,
                "&%s=%s", attr[i].attr_name, attr[i].value);
     }
   }
+  printf("Sending notification!!!: %s\n", message);
   multicast_send(channel, message, strlen(message));
 }
 
@@ -203,6 +205,7 @@ void *app_listen_messages(void *channel) {
         if (localTable[i].serviceName != NULL &&
             strcmp(localTable[i].serviceName, serviceName) == 0) {
           localTable[i].lastHeartbeat = time(NULL);
+          localTable[i].status = true;
           break;
         }
       }
@@ -212,6 +215,8 @@ void *app_listen_messages(void *channel) {
       char *adName = NULL;
       char *adValue = NULL;
       decode_advertisement(bufferCopy, &adName, &adValue);
+      printf("service name: %s\n", serviceName);
+      printf("Ad name: %s, Ad value: %s\n", adName, adValue);
       free(bufferCopy);
       pthread_mutex_lock(&localTableLock);
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -220,6 +225,7 @@ void *app_listen_messages(void *channel) {
           if (localTable[i].callback != NULL) {
             // call the callback function
             localTable[i].callback(adName, adValue);
+            printf("Callback function called\n");
           }
           break;
         }
@@ -243,6 +249,7 @@ void *app_check_heartbeat(void *channel) {
         // HEARTBEAT_EXPIRE_TIME
         if (time(NULL) - localTable[i].lastHeartbeat > HEARTBEAT_EXPIRE_TIME) {
           localTable[i].status = false;
+          zcs_log();
         }
       }
     }
@@ -316,12 +323,6 @@ int zcs_init(int type) {
   }
 
   if (type == ZCS_APP_TYPE) {
-    // create a sending multicast channel for app
-    mcast_t *appSendingChannel =
-        multicast_init(APP_SEND_CHANNEL_IP, SERVICE_LPORT, UNUSED_PORT);
-    // send DISCOVERY message
-    multicast_send(appSendingChannel, "message_type=DISCOVERY",
-                   strlen("message_type=DISCOVERY"));
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
@@ -332,6 +333,14 @@ int zcs_init(int type) {
 
     // validate the service status in another thread
     pthread_create(&heartbeatChecker, NULL, app_check_heartbeat, NULL);
+
+    // create a sending multicast channel for app
+    mcast_t *appSendingChannel =
+        multicast_init(APP_SEND_CHANNEL_IP, SERVICE_LPORT, UNUSED_PORT);
+    // send DISCOVERY message
+    multicast_send(appSendingChannel, "message_type=DISCOVERY",
+                   strlen("message_type=DISCOVERY"));
+
   } else if (type == ZCS_SERVICE_TYPE) {
   }
   isInitialized = true;
@@ -394,7 +403,8 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
 
   // send advertisement
   char message[MAX_MESSAGE_LENGTH];
-  snprintf(message, sizeof(message), "message_type=advertisement&name=%s&%s=%s",
+  snprintf(message, sizeof(message),
+           "message_type=advertisement&name=%s&ad_name=%s&ad_value=%s",
            global_service_name, ad_name, ad_value);
   multicast_send(serviceSendingChannel, message, strlen(message));
   postCount++;
@@ -404,6 +414,7 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
               int namelen) {
   printf("Querying for %s = %s\n", attr_name, attr_value);
+  sleep(QUERY_WAIT_TIME);
 
   pthread_mutex_lock(
       &localTableLock);  // Ensure thread-safe access to localTable
@@ -479,7 +490,7 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
     printf("ZCS not initialized.\n");
     return -1;
   }
-
+  printf("registering callback for %s\n", name);
   // register the callback function in app's localTableEntry
   pthread_mutex_lock(&localTableLock);
   for (int i = 0; i < MAX_SERVICE_NUM; i++) {
@@ -496,7 +507,7 @@ int zcs_listen_ad(char *name, zcs_cb_f cback) {
 
 // terminate the service and app, clean up the memory
 int zcs_shutdown() {
-  if (!isStarted) {
+  if (!isInitialized) {
     printf("ZCS not initialized.\n");
     return -1;
   }
@@ -527,7 +538,7 @@ int zcs_shutdown() {
 
 void zcs_log() {
   // Implement logging functionality
-  pthread_mutex_lock(&localTableLock);
+  // pthread_mutex_lock(&localTableLock);
 
   printf("Current Services Status:\n");
   printf("%-25s %-10s %-20s\n", "Service Name", "Status", "Last Heartbeat");
@@ -546,5 +557,5 @@ void zcs_log() {
     }
   }
 
-  pthread_mutex_unlock(&localTableLock);  // Release lock
+  // pthread_mutex_unlock(&localTableLock);  // Release lock
 }
