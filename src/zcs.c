@@ -17,9 +17,8 @@
 #define UNUSED_PORT 1000
 
 #define MAX_SERVICE_NUM 20
-#define MAX_ATTR_NUM 10           // max number of attributes for each service
-#define HEARTBEAT_EXPIRE_TIME 10  // in seconds
-#define APP_MAX_WAIT_TIME 20      // max seconds app waits messages from service
+#define MAX_ATTR_NUM 10          // max number of attributes for each service
+#define HEARTBEAT_EXPIRE_TIME 5  // in seconds
 #define MAX_MESSAGE_LENGTH 256
 #define QUERY_WAIT_TIME 3  // seconds
 typedef struct localTableEntry {
@@ -190,7 +189,6 @@ void *app_listen_messages(void *channel) {
         decode_notification(bufferCopy, &entry);
         free(bufferCopy);
         if (table_index < MAX_SERVICE_NUM) {
-          printf("ADDING SERVICE\n");
           localTable[table_index] = entry;
           table_index = table_index + 1;
         }
@@ -428,7 +426,7 @@ int zcs_query(char *attr_name, char *attr_value, char *node_names[],
           strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
         node_names[found] =
             strdup(localTable[i].serviceName);  // Duplicate string to avoid
-        printf("HERE\n");                       // pointing to freed memory
+                                                // pointing to freed memory
         found++;
         break;  // Found a match, no need to check further attributes for this
                 // service
@@ -535,7 +533,6 @@ int zcs_shutdown() {
 
 void zcs_log() {
   // Implement logging functionality
-  // pthread_mutex_lock(&localTableLock);
 
   printf("Current Services Status:\n");
   printf("%-25s %-10s %-20s\n", "Service Name", "Status", "Last Heartbeat");
@@ -553,6 +550,4 @@ void zcs_log() {
              localTable[i].status ? "UP" : "DOWN", buffer);
     }
   }
-
-  // pthread_mutex_unlock(&localTableLock);  // Release lock
 }
