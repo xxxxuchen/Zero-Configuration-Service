@@ -5,7 +5,7 @@
 #include "zcs.h"
 
 void hello(char *s, char *r) {
-  printf("Ad successfully received from speaker!!!!!!\n");
+  // printf("Ad successfully received from speaker!!!!!!\n");
   printf("Ad received: %s, with value: %s\n", s, r);
   zcs_log();
 }
