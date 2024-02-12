@@ -26,8 +26,8 @@ typedef struct localTableEntry {
   bool status;
   int lastHeartbeat;  // timestamp of the last heartbeat
   zcs_attribute_t attributes[MAX_ATTR_NUM];
-  zcs_cb_f callback;  // callback function for the service
-  int num_of_departures; // number of departures
+  zcs_cb_f callback;      // callback function for the service
+  int num_of_departures;  // number of departures
 } LocalTableEntry;
 
 typedef struct heartbeatSenderArgs {
@@ -79,6 +79,11 @@ void decode_type_name(char *message, char **type, char **serviceName) {
 void decode_notification(char *message, LocalTableEntry *entry) {
   if (message == NULL) {
     return;
+  }
+  // reset attributes to NULL
+  for (int i = 0; i < MAX_ATTR_NUM; i++) {
+    entry->attributes[i].attr_name = NULL;
+    entry->attributes[i].value = NULL;
   }
 
   // tokenize the message based on '&'
@@ -172,6 +177,7 @@ void *app_listen_messages(void *channel) {
       printf("Notification received from %s\n", serviceName);
       bool serviceExists = false;
       // if there is already an entry for the service, skip
+      pthread_mutex_lock(&localTableLock);
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
         if (localTable[i].serviceName != NULL &&
             strcmp(localTable[i].serviceName, serviceName) == 0) {
@@ -180,7 +186,6 @@ void *app_listen_messages(void *channel) {
         }
       }
       if (!serviceExists) {
-        pthread_mutex_lock(&localTableLock);
         LocalTableEntry entry;
         // actually no need to assign serviceName here, it would be done inside
         // the decode_notification
@@ -194,8 +199,8 @@ void *app_listen_messages(void *channel) {
           localTable[table_index] = entry;
           table_index = table_index + 1;
         }
-        pthread_mutex_unlock(&localTableLock);
       }
+      pthread_mutex_unlock(&localTableLock);
     } else if (strcmp(message_type, "HEARTBEAT") == 0) {
       // printf("Heartbeat received from %s\n", serviceName);
       // listen for HEARTBEAT message
@@ -245,7 +250,7 @@ void *app_check_heartbeat(void *channel) {
         // heartbeat is stale, if the time difference is greater than
         // HEARTBEAT_EXPIRE_TIME
         if (time(NULL) - localTable[i].lastHeartbeat > HEARTBEAT_EXPIRE_TIME) {
-          if(localTable[i].status==true){
+          if (localTable[i].status == true) {
             localTable[i].num_of_departures++;
           }
           localTable[i].status = false;
@@ -542,7 +547,8 @@ void zcs_log() {
   // Implement logging functionality
 
   printf("Current Services Status:\n");
-  printf("%-25s %-10s %-20s %-20s\n", "Service Name", "Status", "Last Heartbeat","Number of Departures");
+  printf("%-25s %-10s %-20s %-20s\n", "Service Name", "Status",
+         "Last Heartbeat", "Number of Departures");
 
   for (int i = 0; i < MAX_SERVICE_NUM; i++) {
     if (localTable[i].serviceName != NULL) {  // Check if entry is used
@@ -554,7 +560,8 @@ void zcs_log() {
                tm_info);  // Format time into string
 
       printf("%-25s %-10s %-20s %d \n", localTable[i].serviceName,
-             localTable[i].status ? "UP" : "DOWN", buffer, localTable[i].num_of_departures);
+             localTable[i].status ? "UP" : "DOWN", buffer,
+             localTable[i].num_of_departures);
     }
   }
 }

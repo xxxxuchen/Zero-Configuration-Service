@@ -19,4 +19,4 @@ service-2: service-2.c $(SRC_COMMON)
 	$(CC) $(CFLAGS) -pthread -o $@ $^
 
 clean:
-	rm -f app service $(OBJ_COMMON)
+	rm -f app service app-2 service-2 $(OBJ_COMMON)
