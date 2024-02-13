@@ -182,6 +182,9 @@ void *app_listen_messages(void *channel) {
         if (localTable[i].serviceName != NULL &&
             strcmp(localTable[i].serviceName, serviceName) == 0) {
           serviceExists = true;
+          // update the lastHeartbeat and status
+          localTable[i].lastHeartbeat = time(NULL);
+          localTable[i].status = true;
           break;
         }
       }
@@ -200,6 +203,7 @@ void *app_listen_messages(void *channel) {
           table_index = table_index + 1;
         }
       }
+      zcs_log();
       pthread_mutex_unlock(&localTableLock);
     } else if (strcmp(message_type, "HEARTBEAT") == 0) {
       // printf("Heartbeat received from %s\n", serviceName);
