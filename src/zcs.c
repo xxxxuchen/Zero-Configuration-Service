@@ -45,6 +45,7 @@ typedef struct discoveryListenerArgs {
 
 LocalTableEntry localTable[MAX_SERVICE_NUM] = {0};
 pthread_mutex_t localTableLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t notificationSent = PTHREAD_COND_INITIALIZER;
 int table_index = 0;  // Table index
 
 bool isInitialized = false;
@@ -176,8 +177,9 @@ void *app_listen_messages(void *channel) {
     if (strcmp(message_type, "NOTIFICATION") == 0) {
       printf("Notification received from %s\n", serviceName);
       bool serviceExists = false;
-      // if there is already an entry for the service, skip
       pthread_mutex_lock(&localTableLock);
+      pthread_cond_signal(&notificationSent);
+      // if there is already an entry for the service, update status and skip
       for (int i = 0; i < MAX_SERVICE_NUM; i++) {
         if (localTable[i].serviceName != NULL &&
             strcmp(localTable[i].serviceName, serviceName) == 0) {
@@ -327,6 +329,21 @@ void *service_listen_discovery(void *args) {
 //   return NULL;
 // }
 
+bool isNotificationReceived(const char *attr_name, const char *attr_value) {
+  for (int i = 0; i < MAX_SERVICE_NUM; i++) {
+    if (localTable[i].serviceName != NULL) {
+      for (int j = 0; j < MAX_ATTR_NUM; j++) {
+        if (localTable[i].attributes[j].attr_name != NULL &&
+            strcmp(localTable[i].attributes[j].attr_name, attr_name) == 0 &&
+            strcmp(localTable[i].attributes[j].value, attr_value) == 0) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 int zcs_init(int type) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
     return -1;
@@ -370,15 +387,15 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
   mcast_t *serviceSendingChannel =
       multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
 
-  // send NOTIFICATION message
-  send_notification(serviceSendingChannel, name, attr, num);
   // send HEARTBEAT message periodically in another thread
-
   HeartbeatSenderArgs *heartbeatArgs =
       (HeartbeatSenderArgs *)malloc(sizeof(HeartbeatSenderArgs));
   heartbeatArgs->channel = serviceSendingChannel;
   heartbeatArgs->serviceName = name;
   pthread_create(&heartbeatSender, NULL, service_send_heartbeat, heartbeatArgs);
+
+  // send NOTIFICATION message
+  send_notification(serviceSendingChannel, name, attr, num);
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
@@ -425,11 +442,15 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
               int namelen) {
   printf("Querying for %s = %s\n", attr_name, attr_value);
-  sleep(QUERY_WAIT_TIME);
 
-  pthread_mutex_lock(
-      &localTableLock);  // Ensure thread-safe access to localTable
-  int found = 0;         // Counter for found nodes
+  pthread_mutex_lock(&localTableLock);
+  while (!isNotificationReceived(attr_name, attr_value)) {
+    printf("Waiting for notification from the service with attr: %s...\n",
+           attr_value);
+    pthread_cond_wait(&notificationSent, &localTableLock);
+  }
+
+  int found = 0;  // Counter for found nodes
 
   for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
     for (int j = 0; j < MAX_ATTR_NUM; j++) {
