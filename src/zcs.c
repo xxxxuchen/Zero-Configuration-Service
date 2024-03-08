@@ -425,11 +425,11 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
 int zcs_query(char *attr_name, char *attr_value, char *node_names[],
               int namelen) {
   printf("Querying for %s = %s\n", attr_name, attr_value);
+  // wait for notification
   sleep(QUERY_WAIT_TIME);
 
-  pthread_mutex_lock(
-      &localTableLock);  // Ensure thread-safe access to localTable
-  int found = 0;         // Counter for found nodes
+  pthread_mutex_lock(&localTableLock);
+  int found = 0;
 
   for (int i = 0; i < MAX_SERVICE_NUM && found < namelen; i++) {
     for (int j = 0; j < MAX_ATTR_NUM; j++) {
