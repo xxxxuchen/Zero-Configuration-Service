@@ -10,9 +10,15 @@ void hello(char *s, char *r) {
   zcs_log();
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  if (argc < 2) { // Expect at least one multicast address
+    printf("Usage: %s <multicast_address_1> [multicast_address_2] ...\n", argv[0]);
+    return 1;
+  }
+  char *app_send_channel_ip = argv[1];
+  char *service_send_channel_ip = argv[2];
   int rv;
-  rv = zcs_init(ZCS_APP_TYPE);
+  rv = zcs_init(ZCS_APP_TYPE,app_send_channel_ip,service_send_channel_ip);
   char *names[10];
   rv = zcs_query("type", "lamp", names, 10);
   if (rv > 0) {

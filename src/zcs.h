@@ -11,8 +11,8 @@ typedef struct {
 
 typedef void (*zcs_cb_f)(char *, char *);
 
-int zcs_init(int type);
-int zcs_start(char *name, zcs_attribute_t attr[], int num);
+int zcs_init(int type,char* app_send_channel_ip,char* service_send_channel_ip);
+int zcs_start(char *name, zcs_attribute_t attr[], int num,char* app_send_channel_ip,char* service_send_channel_ip);
 int zcs_post_ad(char *ad_name, char *ad_value);
 int zcs_query(char *attr_name, char *attr_value, char *node_names[], int namelen);
 int zcs_get_attribs(char *name, zcs_attribute_t attr[], int *num);

@@ -10,9 +10,9 @@
 
 #include "multicast.h"
 
-#define APP_SEND_CHANNEL_IP "224.1.1.1"
+// #define APP_SEND_CHANNEL_IP "224.1.1.1"
 #define SERVICE_LPORT 1100
-#define SERVICE_SEND_CHANNEL_IP "225.1.1.1"
+// #define SERVICE_SEND_CHANNEL_IP "225.1.1.1"
 #define APP_LPORT 1700
 #define UNUSED_PORT 1000
 
@@ -50,6 +50,9 @@ int table_index = 0;  // Table index
 bool isInitialized = false;
 bool isStarted = false;
 char *global_service_name = NULL;
+
+char* APP_SEND_CHANNEL_IP = NULL;
+char* SERVICE_SEND_CHANNEL_IP = NULL;
 
 pthread_t messageListener;   // listen for notification, heartbeat, and ad (app)
 pthread_t heartbeatChecker;  // check if heartbeat is expire (app)
@@ -327,12 +330,15 @@ void *service_listen_discovery(void *args) {
 //   return NULL;
 // }
 
-int zcs_init(int type) {
+int zcs_init(int type, char* app_send_channel_ip, char* service_send_channel_ip) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
     return -1;
   }
 
   if (type == ZCS_APP_TYPE) {
+    APP_SEND_CHANNEL_IP = app_send_channel_ip;
+    SERVICE_SEND_CHANNEL_IP = service_send_channel_ip;
+
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
         multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
@@ -357,12 +363,16 @@ int zcs_init(int type) {
   return 0;
 }
 
-int zcs_start(char *name, zcs_attribute_t attr[], int num) {
+int zcs_start(char *name, zcs_attribute_t attr[], int num, char* app_send_channel_ip, char* service_send_channel_ip) {
   assert(name != NULL && strlen(name) < 64);
   if (!isInitialized) {
     printf("ZCS not initialized.\n");
     return -1;
   }
+
+  APP_SEND_CHANNEL_IP = app_send_channel_ip;
+  SERVICE_SEND_CHANNEL_IP = service_send_channel_ip;
+  
   // set global serviceName
   global_service_name = name;
 
