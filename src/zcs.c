@@ -338,6 +338,7 @@ int zcs_init(int type, char *app_addr, char *service_addr) {
   SERVICES_IP = service_addr;
 
   if (type == ZCS_APP_TYPE) {
+
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
         multicast_init(APPS_IP, UNUSED_PORT, APP_LPORT);
