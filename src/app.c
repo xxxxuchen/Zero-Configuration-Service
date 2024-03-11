@@ -10,9 +10,17 @@ void hello(char *s, char *r) {
   zcs_log();
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  // argument should be apps IP address and then services IP address
+  if (argc != 2) {
+    printf(
+        "Please pass the correct number of args. \nUsage: ./app <apps IP "
+        "address> <services IP address>");
+    return 1;
+  }
   int rv;
-  rv = zcs_init(ZCS_APP_TYPE);
+  // receive the addresses from the args
+  rv = zcs_init(ZCS_APP_TYPE, argv[1], argv[2]);
   char *names[10];
   rv = zcs_query("type", "speaker", names, 10);
   if (rv > 0) {

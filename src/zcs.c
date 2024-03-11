@@ -10,9 +10,7 @@
 
 #include "multicast.h"
 
-#define APP_SEND_CHANNEL_IP "224.1.1.1"
 #define SERVICE_LPORT 1100
-#define SERVICE_SEND_CHANNEL_IP "225.1.1.1"
 #define APP_LPORT 1700
 #define UNUSED_PORT 1000
 
@@ -50,6 +48,8 @@ int table_index = 0;  // Table index
 bool isInitialized = false;
 bool isStarted = false;
 char *global_service_name = NULL;
+char *APPS_IP = NULL;
+char *SERVICES_IP = NULL;
 
 pthread_t messageListener;   // listen for notification, heartbeat, and ad (app)
 pthread_t heartbeatChecker;  // check if heartbeat is expire (app)
@@ -327,15 +327,20 @@ void *service_listen_discovery(void *args) {
 //   return NULL;
 // }
 
-int zcs_init(int type) {
+int zcs_init(int type, char *app_addr, char *service_addr) {
   if (type != ZCS_APP_TYPE && type != ZCS_SERVICE_TYPE) {
     return -1;
   }
+  if (app_addr == NULL || service_addr == NULL) {
+    return -1;
+  }
+  APPS_IP = app_addr;
+  SERVICES_IP = service_addr;
 
   if (type == ZCS_APP_TYPE) {
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
-        multicast_init(SERVICE_SEND_CHANNEL_IP, UNUSED_PORT, APP_LPORT);
+        multicast_init(APPS_IP, UNUSED_PORT, APP_LPORT);
 
     // listen for messages in another thread
     pthread_create(&messageListener, NULL, app_listen_messages,
@@ -346,7 +351,7 @@ int zcs_init(int type) {
 
     // create a sending multicast channel for app
     mcast_t *appSendingChannel =
-        multicast_init(APP_SEND_CHANNEL_IP, SERVICE_LPORT, UNUSED_PORT);
+        multicast_init(SERVICES_IP, SERVICE_LPORT, UNUSED_PORT);
     // send DISCOVERY message
     multicast_send(appSendingChannel, "message_type=DISCOVERY",
                    strlen("message_type=DISCOVERY"));
@@ -368,7 +373,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
 
   // create a sending multicast channel for service
   mcast_t *serviceSendingChannel =
-      multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
+      multicast_init(APPS_IP, APP_LPORT, UNUSED_PORT);
 
   // send NOTIFICATION message
   send_notification(serviceSendingChannel, name, attr, num);
@@ -382,7 +387,7 @@ int zcs_start(char *name, zcs_attribute_t attr[], int num) {
 
   // create a receiving multicast channel for service
   mcast_t *serviceReceivingChannel =
-      multicast_init(APP_SEND_CHANNEL_IP, UNUSED_PORT, SERVICE_LPORT);
+      multicast_init(SERVICES_IP, UNUSED_PORT, SERVICE_LPORT);
 
   // listen for discovery in another thread periodically
   DiscoveryListenerArgs *discoveryArgs =
@@ -410,7 +415,7 @@ int zcs_post_ad(char *ad_name, char *ad_value) {
   static int postCount = 0;
   // create a service sending multicast channel
   mcast_t *serviceSendingChannel =
-      multicast_init(SERVICE_SEND_CHANNEL_IP, APP_LPORT, UNUSED_PORT);
+      multicast_init(APPS_IP, APP_LPORT, UNUSED_PORT);
 
   // send advertisement
   char message[MAX_MESSAGE_LENGTH];
