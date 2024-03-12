@@ -10,15 +10,6 @@
 
 #include "multicast.h"
 
-#define SERVICE_LPORT 1100
-#define APP_LPORT 1700
-#define UNUSED_PORT 1000
-
-#define MAX_SERVICE_NUM 20
-#define MAX_ATTR_NUM 10          // max number of attributes for each service
-#define HEARTBEAT_EXPIRE_TIME 5  // in seconds
-#define MAX_MESSAGE_LENGTH 256
-#define QUERY_WAIT_TIME 3  // seconds
 typedef struct localTableEntry {
   char *serviceName;
   bool status;
@@ -338,7 +329,6 @@ int zcs_init(int type, char *app_addr, char *service_addr) {
   SERVICES_IP = service_addr;
 
   if (type == ZCS_APP_TYPE) {
-
     // create a receiving multicast channel for app
     mcast_t *appReceivingChannel =
         multicast_init(APPS_IP, UNUSED_PORT, APP_LPORT);
