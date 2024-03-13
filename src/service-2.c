@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
                                {.attr_name = "location", .value = "bedroom"},
                                {.attr_name = "make", .value = "phillips"}};
   rv = zcs_start("Lamp-Pro", attribs,
-                 sizeof(attribs) / sizeof(zcs_attribute_t),app_send_channel_ip,service_send_channel_ip);
+                 sizeof(attribs) / sizeof(zcs_attribute_t));
   for (int i = 0; i < 1000; i++) {
     rv = zcs_post_ad("light", "on");
     sleep(10);

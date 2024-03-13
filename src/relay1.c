@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-
+#include <string.h>
 #include "multicast.h"
 #include "zcs.h"
 
@@ -43,11 +43,21 @@ void *relay_listen_LAN2(void *args) {
     fflush(stdout);
     // forward the message to the other LAN
     multicast_send(relaySendingChannel1, message, strlen(message));
+  
+    //   // send discovery message to both LANs
+  multicast_send(relaySendingChannel1, "message_type=DISCOVERY",
+                 strlen("message_type=DISCOVERY"));
+  // multicast_send(relaySendingChannel2, "message_type=DISCOVERY",
+  //                strlen("message_type=DISCOVERY"));
+
+  
+  
+  
   }
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 4) {
+  if (argc != 5) {
     printf(
         "Usage: %s <Recv_IP_LAN1> <Send_IP_LAN1> <Recv_IP_LAN2> "
         "<Send_IP_LAN2>\n",
@@ -93,4 +103,9 @@ int main(int argc, char *argv[]) {
                  strlen("message_type=DISCOVERY"));
   multicast_send(relaySendingChannel2, "message_type=DISCOVERY",
                  strlen("message_type=DISCOVERY"));
+
+
+  pthread_join(listenerThread2, NULL);
+  pthread_join(listenerThread1, NULL);
+
 }

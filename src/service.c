@@ -5,7 +5,7 @@
 
 int main(int argc, char *argv[]) {
   // argument should be apps IP address and then services IP address
-  if (argc != 2) {
+  if (argc != 3) {
     printf(
         "Please pass the correct number of args. \nUsage: ./app <apps IP "
         "address> <services IP address>");

@@ -4,7 +4,7 @@ SRC_COMMON = multicast.c zcs.c
 OBJ_COMMON = $(SRC_COMMON:.c=.o)
 
 
-all: app service app-2 service-2 relay
+all: app service app-2 service-2 relay-1
 
 app: app.c $(SRC_COMMON)
 	$(CC) $(CFLAGS) -pthread -o $@ $^
@@ -18,7 +18,7 @@ app-2: app-2.c $(SRC_COMMON)
 service-2: service-2.c $(SRC_COMMON)
 	$(CC) $(CFLAGS) -pthread -o $@ $^
 
-relay: relay.c $(SRC_COMMON)
+relay-1: relay1.c $(SRC_COMMON)
 	$(CC) $(CFLAGS) -pthread -o $@ $^
 clean:
 	rm -f app service app-2 service-2 $(OBJ_COMMON)
