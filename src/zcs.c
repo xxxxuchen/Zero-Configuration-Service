@@ -268,7 +268,8 @@ void *service_send_heartbeat(void *args) {
   free(heartbeatArgs);
   // send HEARTBEAT message every second
   while (1) {
-    usleep(1000000);
+    // usleep(1000000);
+    sleep(3);
     multicast_send(channel, message, strlen(message));
     // printf("HEARTBEAT message sent\n");
   }
