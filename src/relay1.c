@@ -119,36 +119,36 @@ int main(int argc, char *argv[]) {
 
   // start the relay's listener thread for LAN1
   pthread_t listenServicesThread1;
-  ListenLAN1Args *listenLAN1Args = malloc(sizeof(ListenLAN1Args));
-  listenLAN1Args->receivingChannel = relayReceivingChannelServices1;
-  listenLAN1Args->sendingChannel = relaySendingChannelApps2;
+  ListenLAN1Args *listenServices1Args = malloc(sizeof(ListenLAN1Args));
+  listenServices1Args->receivingChannel = relayReceivingChannelServices1;
+  listenServices1Args->sendingChannel = relaySendingChannelApps2;
 
   pthread_create(&listenServicesThread1, NULL, relay_listen_services1,
-                 (void *)listenLAN1Args);
+                 (void *)listenServices1Args);
 
   // start the relay's listener thread for LAN2
   pthread_t listenerServicesThread2;
-  ListenLAN2Args *listenLAN2Args = malloc(sizeof(ListenLAN2Args));
-  listenLAN2Args->receivingChannel = relayReceivingChannelServices2;
-  listenLAN2Args->sendingChannel = relaySendingChannelApps1;
+  ListenLAN2Args *listenServices2Args = malloc(sizeof(ListenLAN2Args));
+  listenServices2Args->receivingChannel = relayReceivingChannelServices2;
+  listenServices2Args->sendingChannel = relaySendingChannelApps1;
 
   pthread_create(&listenerServicesThread2, NULL, relay_listen_services2,
-                 (void *)listenLAN2Args);
+                 (void *)listenServices2Args);
 
   pthread_t listenAppsThread1;
-  ListenLAN1Args *listenLAN1Args = malloc(sizeof(ListenLAN1Args));
-  listenLAN1Args->receivingChannel = relayReceivingChannelApps1;
-  listenLAN1Args->sendingChannel = relaySendingChannelServices2;
+  ListenLAN1Args *listenApps1Args = malloc(sizeof(ListenLAN1Args));
+  listenApps1Args->receivingChannel = relayReceivingChannelApps1;
+  listenApps1Args->sendingChannel = relaySendingChannelServices2;
 
   pthread_create(&listenAppsThread1, NULL, relay_listen_apps1,
-                 (void *)listenLAN1Args);
+                 (void *)listenApps1Args);
 
   pthread_t listenAppsThread2;
-  ListenLAN1Args *listenLAN1Args = malloc(sizeof(ListenLAN1Args));
-  listenLAN1Args->receivingChannel = relayReceivingChannelApps2;
-  listenLAN1Args->sendingChannel = relaySendingChannelServices1;
+  ListenLAN1Args *listenApps2Args = malloc(sizeof(ListenLAN1Args));
+  listenApps2Args->receivingChannel = relayReceivingChannelApps2;
+  listenApps2Args->sendingChannel = relaySendingChannelServices1;
   pthread_create(&listenAppsThread2, NULL, relay_listen_apps2,
-                 (void *)listenLAN1Args);
+                 (void *)listenApps2Args);
 
   pthread_join(listenServicesThread1, NULL);
   pthread_join(listenerServicesThread2, NULL);
