@@ -43,10 +43,10 @@ void *relay_listen_LAN2(void *args) {
     fflush(stdout);
     // forward the message to the other LAN
     multicast_send(relaySendingChannel1, message, strlen(message));
-  
+  printf("SENTTTTT\n");
     //   // send discovery message to both LANs
-  multicast_send(relaySendingChannel1, "message_type=DISCOVERY",
-                 strlen("message_type=DISCOVERY"));
+  // multicast_send(relaySendingChannel1, "message_type=DISCOVERY",
+  //                strlen("message_type=DISCOVERY"));
   // multicast_send(relaySendingChannel2, "message_type=DISCOVERY",
   //                strlen("message_type=DISCOVERY"));
 
@@ -65,20 +65,36 @@ int main(int argc, char *argv[]) {
   }
 
   // create a relay receiving multicast channel for LAN1
-  mcast_t *relayReceivingChannel1 =
+  mcast_t *relayReceivingChannelServices1 =
       multicast_init(argv[1], UNUSED_PORT, APP_LPORT);
 
   // create a relay sending multicast channel for LAN1
-  mcast_t *relaySendingChannel1 =
+  mcast_t *relaySendingChannelServices1 =
       multicast_init(argv[2], SERVICE_LPORT, UNUSED_PORT);
 
   // create a relay receiving multicast channel for LAN2
-  mcast_t *relayReceivingChannel2 =
+  mcast_t *relayReceivingChannelServices2 =
       multicast_init(argv[3], UNUSED_PORT, APP_LPORT);
 
   // create a relay sending multicast channel for LAN2
-  mcast_t *relaySendingChannel2 =
+  mcast_t *relaySendingChannelServices2 =
       multicast_init(argv[4], SERVICE_LPORT, UNUSED_PORT);
+
+  // create a relay receiving multicast channel for LAN1
+  mcast_t *relayReceivingChannelApps1 =
+      multicast_init(argv[1], UNUSED_PORT, SERVICE_LPORT);
+
+  // create a relay sending multicast channel for LAN1
+  mcast_t *relaySendingChannelApps1 =
+      multicast_init(argv[2], APP_LPORT, UNUSED_PORT);
+
+  // create a relay receiving multicast channel for LAN2
+  mcast_t *relayReceivingChannelApps2 =
+      multicast_init(argv[3], UNUSED_PORT, SERVICE_LPORT);
+
+  // create a relay sending multicast channel for LAN2
+  mcast_t *relaySendingChannelApps2 =
+      multicast_init(argv[4], APP_LPORT, UNUSED_PORT);
 
   // start the relay's listener thread for LAN1
   pthread_t listenerThread1;
@@ -103,8 +119,6 @@ int main(int argc, char *argv[]) {
                  strlen("message_type=DISCOVERY"));
   multicast_send(relaySendingChannel2, "message_type=DISCOVERY",
                  strlen("message_type=DISCOVERY"));
-
-
   pthread_join(listenerThread2, NULL);
   pthread_join(listenerThread1, NULL);
 
