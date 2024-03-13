@@ -1,8 +1,9 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
+
 #include "multicast.h"
 #include "zcs.h"
 
@@ -16,7 +17,7 @@ typedef struct listenLAN2Args {
   mcast_t *sendingChannel;
 } ListenLAN2Args;
 
-void *relay_listen_LAN1(void *args) {
+void *relay_listen_services1(void *args) {
   ListenLAN1Args *listenLAN1Args = (ListenLAN1Args *)args;
   mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
   mcast_t *relaySendingChannel2 = listenLAN1Args->sendingChannel;
@@ -31,7 +32,7 @@ void *relay_listen_LAN1(void *args) {
   }
 }
 
-void *relay_listen_LAN2(void *args) {
+void *relay_listen_services2(void *args) {
   ListenLAN2Args *listenLAN2Args = (ListenLAN2Args *)args;
   mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
   mcast_t *relaySendingChannel1 = listenLAN2Args->sendingChannel;
@@ -43,16 +44,36 @@ void *relay_listen_LAN2(void *args) {
     fflush(stdout);
     // forward the message to the other LAN
     multicast_send(relaySendingChannel1, message, strlen(message));
-  printf("SENTTTTT\n");
-    //   // send discovery message to both LANs
-  // multicast_send(relaySendingChannel1, "message_type=DISCOVERY",
-  //                strlen("message_type=DISCOVERY"));
-  // multicast_send(relaySendingChannel2, "message_type=DISCOVERY",
-  //                strlen("message_type=DISCOVERY"));
+  }
+}
 
-  
-  
-  
+void *relay_listen_apps1(void *args) {
+  ListenLAN1Args *listenLAN1Args = (ListenLAN1Args *)args;
+  mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
+  mcast_t *relaySendingChannel2 = listenLAN1Args->sendingChannel;
+  char message[MAX_MESSAGE_LENGTH];
+  multicast_setup_recv(relayReceivingChannel1);
+  while (1) {
+    multicast_receive(relayReceivingChannel1, message, MAX_MESSAGE_LENGTH);
+    printf("Received:  %s\r\n", message);
+    fflush(stdout);
+    // forward the message to the other LAN
+    multicast_send(relaySendingChannel2, message, strlen(message));
+  }
+}
+
+void *relay_listen_apps2(void *args) {
+  ListenLAN2Args *listenLAN2Args = (ListenLAN2Args *)args;
+  mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
+  mcast_t *relaySendingChannel1 = listenLAN2Args->sendingChannel;
+  char message[MAX_MESSAGE_LENGTH];
+  multicast_setup_recv(relayReceivingChannel2);
+  while (1) {
+    multicast_receive(relayReceivingChannel2, message, MAX_MESSAGE_LENGTH);
+    printf("Received:  %s\r\n", message);
+    fflush(stdout);
+    // forward the message to the other LAN
+    multicast_send(relaySendingChannel1, message, strlen(message));
   }
 }
 
@@ -97,29 +118,40 @@ int main(int argc, char *argv[]) {
       multicast_init(argv[4], APP_LPORT, UNUSED_PORT);
 
   // start the relay's listener thread for LAN1
-  pthread_t listenerThread1;
+  pthread_t listenServicesThread1;
   ListenLAN1Args *listenLAN1Args = malloc(sizeof(ListenLAN1Args));
-  listenLAN1Args->receivingChannel = relayReceivingChannel1;
-  listenLAN1Args->sendingChannel = relaySendingChannel2;
+  listenLAN1Args->receivingChannel = relayReceivingChannelServices1;
+  listenLAN1Args->sendingChannel = relaySendingChannelApps2;
 
-  pthread_create(&listenerThread1, NULL, relay_listen_LAN1,
+  pthread_create(&listenServicesThread1, NULL, relay_listen_services1,
                  (void *)listenLAN1Args);
 
   // start the relay's listener thread for LAN2
-  pthread_t listenerThread2;
+  pthread_t listenerServicesThread2;
   ListenLAN2Args *listenLAN2Args = malloc(sizeof(ListenLAN2Args));
-  listenLAN2Args->receivingChannel = relayReceivingChannel2;
-  listenLAN2Args->sendingChannel = relaySendingChannel1;
+  listenLAN2Args->receivingChannel = relayReceivingChannelServices2;
+  listenLAN2Args->sendingChannel = relaySendingChannelApps1;
 
-  pthread_create(&listenerThread2, NULL, relay_listen_LAN2,
+  pthread_create(&listenerServicesThread2, NULL, relay_listen_services2,
                  (void *)listenLAN2Args);
 
-  // send discovery message to both LANs
-  multicast_send(relaySendingChannel1, "message_type=DISCOVERY",
-                 strlen("message_type=DISCOVERY"));
-  multicast_send(relaySendingChannel2, "message_type=DISCOVERY",
-                 strlen("message_type=DISCOVERY"));
-  pthread_join(listenerThread2, NULL);
-  pthread_join(listenerThread1, NULL);
+  pthread_t listenAppsThread1;
+  ListenLAN1Args *listenLAN1Args = malloc(sizeof(ListenLAN1Args));
+  listenLAN1Args->receivingChannel = relayReceivingChannelApps1;
+  listenLAN1Args->sendingChannel = relaySendingChannelServices2;
 
+  pthread_create(&listenAppsThread1, NULL, relay_listen_apps1,
+                 (void *)listenLAN1Args);
+
+  pthread_t listenAppsThread2;
+  ListenLAN1Args *listenLAN1Args = malloc(sizeof(ListenLAN1Args));
+  listenLAN1Args->receivingChannel = relayReceivingChannelApps2;
+  listenLAN1Args->sendingChannel = relaySendingChannelServices1;
+  pthread_create(&listenAppsThread2, NULL, relay_listen_apps2,
+                 (void *)listenLAN1Args);
+
+  pthread_join(listenServicesThread1, NULL);
+  pthread_join(listenerServicesThread2, NULL);
+  pthread_join(listenAppsThread1, NULL);
+  pthread_join(listenAppsThread2, NULL);
 }
