@@ -7,18 +7,35 @@
 #include "multicast.h"
 #include "zcs.h"
 
-typedef struct listenLAN1Args {
+#define FORWARD_TAG "forward=true&"
+typedef struct listenLANArgs {
   mcast_t *receivingChannel;
   mcast_t *sendingChannel;
-} ListenLAN1Args;
+} ListenThreadArgs;
 
-typedef struct listenLAN2Args {
-  mcast_t *receivingChannel;
-  mcast_t *sendingChannel;
-} ListenLAN2Args;
+// add the forward=true& tag to the front of the message
+void encodeForwardMessage(char message[]) {
+  const char prefix[] = FORWARD_TAG;
+
+  // Calculate the length of the new message
+  int newLength = strlen(prefix) + strlen(message) + 1;
+
+  // Create a temporary buffer to hold the new message
+  char temp[MAX_MESSAGE_LENGTH];
+
+  // Copy the prefix and existing message into the temporary buffer
+  strcpy(temp, prefix);
+  strcat(temp, message);
+
+  // Copy the new message back into the original message buffer
+  strncpy(message, temp, newLength);
+
+  // Ensure the new message is null-terminated
+  message[newLength - 1] = '\0';
+}
 
 void *relay_listen_services1(void *args) {
-  ListenLAN1Args *listenLAN1Args = (ListenLAN1Args *)args;
+  ListenThreadArgs *listenLAN1Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
   mcast_t *relaySendingChannel2 = listenLAN1Args->sendingChannel;
   char message[MAX_MESSAGE_LENGTH];
@@ -28,6 +45,14 @@ void *relay_listen_services1(void *args) {
       continue;
     }
     multicast_receive(relayReceivingChannel1, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
     printf("Received1:  %s\r\n", message);
     fflush(stdout);
     // forward the message to the other LAN
@@ -37,7 +62,7 @@ void *relay_listen_services1(void *args) {
 }
 
 void *relay_listen_services2(void *args) {
-  ListenLAN2Args *listenLAN2Args = (ListenLAN2Args *)args;
+  ListenThreadArgs *listenLAN2Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
   mcast_t *relaySendingChannel1 = listenLAN2Args->sendingChannel;
   char message[MAX_MESSAGE_LENGTH];
@@ -47,6 +72,13 @@ void *relay_listen_services2(void *args) {
       continue;
     }
     multicast_receive(relayReceivingChannel2, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
     printf("Received2:  %s\r\n", message);
     fflush(stdout);
     // forward the message to the other LAN
@@ -56,7 +88,7 @@ void *relay_listen_services2(void *args) {
 }
 
 void *relay_listen_apps1(void *args) {
-  ListenLAN1Args *listenLAN1Args = (ListenLAN1Args *)args;
+  ListenThreadArgs *listenLAN1Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
   mcast_t *relaySendingChannel2 = listenLAN1Args->sendingChannel;
   char message[MAX_MESSAGE_LENGTH];
@@ -66,6 +98,13 @@ void *relay_listen_apps1(void *args) {
       continue;
     }
     multicast_receive(relayReceivingChannel1, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
     printf("Received3:  %s\r\n", message);
     fflush(stdout);
     // forward the message to the other LAN
@@ -75,7 +114,7 @@ void *relay_listen_apps1(void *args) {
 }
 
 void *relay_listen_apps2(void *args) {
-  ListenLAN2Args *listenLAN2Args = (ListenLAN2Args *)args;
+  ListenThreadArgs *listenLAN2Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
   mcast_t *relaySendingChannel1 = listenLAN2Args->sendingChannel;
   char message[MAX_MESSAGE_LENGTH];
@@ -85,6 +124,13 @@ void *relay_listen_apps2(void *args) {
       continue;
     }
     multicast_receive(relayReceivingChannel2, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
     printf("Received4:  %s\r\n", message);
     fflush(stdout);
     // forward the message to the other LAN
@@ -133,7 +179,7 @@ int main(int argc, char *argv[]) {
 
   // start the relay's listener thread for LAN1
   pthread_t listenServicesThread1;
-  ListenLAN1Args *listenServices1Args = malloc(sizeof(ListenLAN1Args));
+  ListenThreadArgs *listenServices1Args = malloc(sizeof(ListenThreadArgs));
   listenServices1Args->receivingChannel = relayReceivingChannelServices1;
   listenServices1Args->sendingChannel = relaySendingChannelApps2;
 
@@ -142,7 +188,7 @@ int main(int argc, char *argv[]) {
 
   // start the relay's listener thread for LAN2
   pthread_t listenerServicesThread2;
-  ListenLAN2Args *listenServices2Args = malloc(sizeof(ListenLAN2Args));
+  ListenThreadArgs *listenServices2Args = malloc(sizeof(ListenThreadArgs));
   listenServices2Args->receivingChannel = relayReceivingChannelServices2;
   listenServices2Args->sendingChannel = relaySendingChannelApps1;
 
@@ -150,7 +196,7 @@ int main(int argc, char *argv[]) {
                  (void *)listenServices2Args);
 
   pthread_t listenAppsThread1;
-  ListenLAN1Args *listenApps1Args = malloc(sizeof(ListenLAN1Args));
+  ListenThreadArgs *listenApps1Args = malloc(sizeof(ListenThreadArgs));
   listenApps1Args->receivingChannel = relayReceivingChannelApps1;
   listenApps1Args->sendingChannel = relaySendingChannelServices2;
 
@@ -158,7 +204,7 @@ int main(int argc, char *argv[]) {
                  (void *)listenApps1Args);
 
   pthread_t listenAppsThread2;
-  ListenLAN1Args *listenApps2Args = malloc(sizeof(ListenLAN1Args));
+  ListenThreadArgs *listenApps2Args = malloc(sizeof(ListenThreadArgs));
   listenApps2Args->receivingChannel = relayReceivingChannelApps2;
   listenApps2Args->sendingChannel = relaySendingChannelServices1;
   pthread_create(&listenAppsThread2, NULL, relay_listen_apps2,
