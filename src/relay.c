@@ -1,132 +1,231 @@
 #include <pthread.h>
-#include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "multicast.h"
-#include <stdio.h>
 #include <unistd.h>
 
-// #define APP_SEND_CHANNEL_IP "224.1.1.1"
-#define SERVICE_LPORT 1100
-// #define SERVICE_SEND_CHANNEL_IP "225.1.1.1"
-#define APP_LPORT 1700
-#define UNUSED_PORT 1000
+#include "multicast.h"
+#include "zcs.h"
 
-// Define a struct for stack elements
-typedef struct StackElement {
-    char *message;
-    struct StackElement *next;
-} StackElement;
+#define FORWARD_TAG "forward=true&"
+typedef struct listenLANArgs {
+  mcast_t *receivingChannel;
+  mcast_t *sendingChannel;
+} ListenThreadArgs;
 
-// Define a struct for the stack
-typedef struct {
-    StackElement *top;
-    pthread_mutex_t lock;
-} MessageStack;
+// add the forward=true& tag to the front of the message
+void encodeForwardMessage(char message[]) {
+  const char prefix[] = FORWARD_TAG;
 
-// Initialize the stack
-void initStack(MessageStack *stack) {
-    stack->top = NULL;
-    pthread_mutex_init(&stack->lock, NULL);
+  // Calculate the length of the new message
+  int newLength = strlen(prefix) + strlen(message) + 1;
+
+  // Create a temporary buffer to hold the new message
+  char temp[MAX_MESSAGE_LENGTH];
+
+  // Copy the prefix and existing message into the temporary buffer
+  strcpy(temp, prefix);
+  strcat(temp, message);
+
+  // Copy the new message back into the original message buffer
+  strncpy(message, temp, newLength);
+
+  // Ensure the new message is null-terminated
+  message[newLength - 1] = '\0';
 }
 
-// Push a message onto the stack
-void pushStack(MessageStack *stack, const char *message) {
-    pthread_mutex_lock(&stack->lock);
-    StackElement *newElement = (StackElement *)malloc(sizeof(StackElement));
-    newElement->message = strdup(message); // Copy the message
-    newElement->next = stack->top;
-    stack->top = newElement;
-    pthread_mutex_unlock(&stack->lock);
-}
-
-// Pop a message from the stack
-char *popStack(MessageStack *stack) {
-    pthread_mutex_lock(&stack->lock);
-    if (stack->top == NULL) {
-        pthread_mutex_unlock(&stack->lock);
-        return NULL;
+// listen for messages from services in LAN1 and forward them to apps in LAN2
+void *relay_listen_services1(void *args) {
+  ListenThreadArgs *listenLAN1Args = (ListenThreadArgs *)args;
+  mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
+  mcast_t *relaySendingChannel2 = listenLAN1Args->sendingChannel;
+  char message[MAX_MESSAGE_LENGTH];
+  multicast_setup_recv(relayReceivingChannel1);
+  while (1) {
+    if (multicast_check_receive(relayReceivingChannel1) == 0) {
+      continue;
     }
-    StackElement *topElement = stack->top;
-    char *message = topElement->message;
-    stack->top = topElement->next;
-    free(topElement);
-    pthread_mutex_unlock(&stack->lock);
-    return message;
-}
-// Global message stack
-MessageStack messageStack;
-
-// Function for the listener thread
-void *listenerThread(void *arg) {
-    mcast_t *recvChannel = (mcast_t *)arg;
-    char buffer[1024];
-    
-    while (true) {
-        int msg_length = multicast_receive(recvChannel, buffer, sizeof(buffer));
-        if (msg_length > 0) {
-            printf("RECEIVED SOMETHING\n");
-            buffer[msg_length] = '\0'; // Ensure null-termination
-            pushStack(&messageStack, buffer);
-        }
+    multicast_receive(relayReceivingChannel1, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
     }
-    return NULL;
+
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
+    printf("Received1:  %s\r\n", message);
+    fflush(stdout);
+    // forward the message to the other LAN
+    multicast_send(relaySendingChannel2, message, strlen(message));
+    memset(message, 0, MAX_MESSAGE_LENGTH);
+  }
 }
 
-// Function for the forwarder thread
-void *forwarderThread(void *arg) {
-    mcast_t *sendChannel = (mcast_t *)arg;
-    
-    while (true) {
-        char *message = popStack(&messageStack);
-        if (message) {
-            multicast_send(sendChannel, message, strlen(message));
-            free(message); // Free the message after sending
-        } else {
-            // No messages in the stack, sleep to avoid busy waiting
-            usleep(100000); // Sleep for 0.1 seconds
-        }
+// listen for messages from services in LAN2 and forward them to apps in LAN1
+void *relay_listen_services2(void *args) {
+  ListenThreadArgs *listenLAN2Args = (ListenThreadArgs *)args;
+  mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
+  mcast_t *relaySendingChannel1 = listenLAN2Args->sendingChannel;
+  char message[MAX_MESSAGE_LENGTH];
+  multicast_setup_recv(relayReceivingChannel2);
+  while (1) {
+    if (multicast_check_receive(relayReceivingChannel2) == 0) {
+      continue;
     }
-    return NULL;
+    multicast_receive(relayReceivingChannel2, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
+    printf("Received2:  %s\r\n", message);
+    fflush(stdout);
+    // forward the message to the other LAN
+    multicast_send(relaySendingChannel1, message, strlen(message));
+    memset(message, 0, MAX_MESSAGE_LENGTH);
+  }
+}
+
+// listen for messages from apps in LAN1 and forward them to services in LAN2
+void *relay_listen_apps1(void *args) {
+  ListenThreadArgs *listenLAN1Args = (ListenThreadArgs *)args;
+  mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
+  mcast_t *relaySendingChannel2 = listenLAN1Args->sendingChannel;
+  char message[MAX_MESSAGE_LENGTH];
+  multicast_setup_recv(relayReceivingChannel1);
+  while (1) {
+    if (multicast_check_receive(relayReceivingChannel1) == 0) {
+      continue;
+    }
+    multicast_receive(relayReceivingChannel1, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
+    printf("Received3:  %s\r\n", message);
+    fflush(stdout);
+    // forward the message to the other LAN
+    multicast_send(relaySendingChannel2, message, strlen(message));
+    memset(message, 0, MAX_MESSAGE_LENGTH);
+  }
+}
+
+// listen for messages from apps in LAN2 and forward them to services in LAN1
+void *relay_listen_apps2(void *args) {
+  ListenThreadArgs *listenLAN2Args = (ListenThreadArgs *)args;
+  mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
+  mcast_t *relaySendingChannel1 = listenLAN2Args->sendingChannel;
+  char message[MAX_MESSAGE_LENGTH];
+  multicast_setup_recv(relayReceivingChannel2);
+  while (1) {
+    if (multicast_check_receive(relayReceivingChannel2) == 0) {
+      continue;
+    }
+    multicast_receive(relayReceivingChannel2, message, MAX_MESSAGE_LENGTH);
+    // check if the message is a forward message, if so, discard it
+    if (strstr(message, FORWARD_TAG) != NULL) {
+      memset(message, 0, MAX_MESSAGE_LENGTH);
+      continue;
+    }
+    // add the forward=true tag to the front of the message
+    encodeForwardMessage(message);
+    printf("Received4:  %s\r\n", message);
+    fflush(stdout);
+    // forward the message to the other LAN
+    multicast_send(relaySendingChannel1, message, strlen(message));
+    memset(message, 0, MAX_MESSAGE_LENGTH);
+  }
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 5) {
-        printf("Usage: %s <Recv_IP_LAN1> <Send_IP_LAN1> <Recv_IP_LAN2> <Send_IP_LAN2>\n", argv[0]);
-        return 1;
-    }
+  if (argc != 5) {
+    printf(
+        "Usage: %s <Recv_IP_LAN1> <Send_IP_LAN1> <Recv_IP_LAN2> "
+        "<Send_IP_LAN2>\n",
+        argv[0]);
+  }
 
-    // Initialize the global stack
-    initStack(&messageStack);
+  // create a relay receiving multicast channel from services in LAN1
+  mcast_t *relayReceivingChannelServices1 =
+      multicast_init(argv[1], UNUSED_PORT, APP_LPORT);
 
-    // Setup multicast channels for LAN 1
-    // Listen on LAN 1, Receive Port
-    mcast_t *recvChannel1 = multicast_init(argv[1], SERVICE_LPORT, UNUSED_PORT);
-    multicast_setup_recv(recvChannel1);
-    // Send to LAN 2, Send Port
-    mcast_t *sendChannel1 = multicast_init(argv[2], UNUSED_PORT, APP_LPORT);
+  // create a relay sending multicast channel to services in LAN1
+  mcast_t *relaySendingChannelServices1 =
+      multicast_init(argv[2], SERVICE_LPORT, UNUSED_PORT);
 
-    // Setup multicast channels for LAN 2
-    // Listen on LAN 2, Receive Port
-    mcast_t *recvChannel2 = multicast_init(argv[3], SERVICE_LPORT, UNUSED_PORT);
-    multicast_setup_recv(recvChannel2);
-    // Send to LAN 1, Send Port
-    mcast_t *sendChannel2 = multicast_init(argv[4], UNUSED_PORT, APP_LPORT);
+  // create a relay receiving multicast channel from services in LAN2
+  mcast_t *relayReceivingChannelServices2 =
+      multicast_init(argv[3], UNUSED_PORT, APP_LPORT);
 
-    // Start listener and forwarder threads for each channel
-    pthread_t listenerThread1, forwarderThread1;
-    pthread_create(&listenerThread1, NULL, listenerThread, recvChannel1);
-    pthread_create(&forwarderThread1, NULL, forwarderThread, sendChannel2);
+  // create a relay sending multicast channel to services in LAN2
+  mcast_t *relaySendingChannelServices2 =
+      multicast_init(argv[4], SERVICE_LPORT, UNUSED_PORT);
 
-    pthread_t listenerThread2, forwarderThread2;
-    pthread_create(&listenerThread2, NULL, listenerThread, recvChannel2);
-    pthread_create(&forwarderThread2, NULL, forwarderThread, sendChannel1);
+  //----------------------------------------------------------------
 
-    // Join threads (in this simple example, threads run indefinitely)
-    pthread_join(listenerThread1, NULL);
-    pthread_join(forwarderThread1, NULL);
-    pthread_join(listenerThread2, NULL);
-    pthread_join(forwarderThread2, NULL);
+  // create a relay receiving multicast channel from apps in LAN1
+  mcast_t *relayReceivingChannelApps1 =
+      multicast_init(argv[2], UNUSED_PORT, SERVICE_LPORT);
 
-    return 0;
+  // create a relay sending multicast channel to apps in LAN1
+  mcast_t *relaySendingChannelApps1 =
+      multicast_init(argv[1], APP_LPORT, UNUSED_PORT);
+
+  // create a relay receiving multicast channel from apps in LAN2
+  mcast_t *relayReceivingChannelApps2 =
+      multicast_init(argv[4], UNUSED_PORT, SERVICE_LPORT);
+
+  // create a relay sending multicast channel to apps in LAN2
+  mcast_t *relaySendingChannelApps2 =
+      multicast_init(argv[3], APP_LPORT, UNUSED_PORT);
+
+  pthread_t listenServicesThread1;
+  ListenThreadArgs *listenServices1Args = malloc(sizeof(ListenThreadArgs));
+  listenServices1Args->receivingChannel = relayReceivingChannelServices1;
+  listenServices1Args->sendingChannel = relaySendingChannelApps2;
+
+  pthread_create(&listenServicesThread1, NULL, relay_listen_services1,
+                 (void *)listenServices1Args);
+
+  pthread_t listenServicesThread2;
+  ListenThreadArgs *listenServices2Args = malloc(sizeof(ListenThreadArgs));
+  listenServices2Args->receivingChannel = relayReceivingChannelServices2;
+  listenServices2Args->sendingChannel = relaySendingChannelApps1;
+
+  pthread_create(&listenServicesThread2, NULL, relay_listen_services2,
+                 (void *)listenServices2Args);
+
+  pthread_t listenAppsThread1;
+  ListenThreadArgs *listenApps1Args = malloc(sizeof(ListenThreadArgs));
+  listenApps1Args->receivingChannel = relayReceivingChannelApps1;
+  listenApps1Args->sendingChannel = relaySendingChannelServices2;
+
+  pthread_create(&listenAppsThread1, NULL, relay_listen_apps1,
+                 (void *)listenApps1Args);
+
+  pthread_t listenAppsThread2;
+  ListenThreadArgs *listenApps2Args = malloc(sizeof(ListenThreadArgs));
+  listenApps2Args->receivingChannel = relayReceivingChannelApps2;
+  listenApps2Args->sendingChannel = relaySendingChannelServices1;
+  pthread_create(&listenAppsThread2, NULL, relay_listen_apps2,
+                 (void *)listenApps2Args);
+
+  // send discovery message to services in both LANs
+  multicast_send(relaySendingChannelServices1,
+                 "forward=true&message_type=DISCOVERY",
+                 strlen("forward=true&message_type=DISCOVERY"));
+  multicast_send(relaySendingChannelServices2,
+                 "forward=true&message_type=DISCOVERY",
+                 strlen("forward=true&message_type=DISCOVERY"));
+
+  pthread_join(listenServicesThread1, NULL);
+  pthread_join(listenServicesThread2, NULL);
+  pthread_join(listenAppsThread1, NULL);
+  pthread_join(listenAppsThread2, NULL);
 }

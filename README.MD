@@ -1,57 +1,88 @@
 ## HOW TO RUN THE CODE
 
+**Note: For PART-2 Specific documentation skip to Extended Config Section below.**
 
 ### 1. Using Our Custom Docker Image
+
 You can use our custom Docker image for testing. But there are some steps you need to follow before you can run the code.
-- we used the docker-compose file to build the image and run the container. 
+
+- we used the docker-compose file to build the image and run the container.
 - make sure you are inside the folder where the docker-compose file is located.
 - type `make start` to run and log in to the container.
 - now make sure you are inside the /home/zcs folder where all the c files are located.
 - type `make` to compile the code.
 - four executables will be created, which you can use for testing: `app`, `app-2`, `service`, and `service-2`.
 
-
 ### 2. Without Using Our Custom Docker Image
+
 - `cd src`. you MUST first to go to the **src** folder.
 - type `make` to compile the code.
 
 ### Some Notes
+
 > All the threads are running in a predefined time interval. So you may need to wait for a few seconds to see the output. For example, you should see the DOWN message logged in the console within 5 seconds after you terminate the service node.
 
 > You can define your own ads sending frequency and duration in the service client file. The default sending interval is 10 seconds, so you should also expect to wait for some time to see the ad messages logged in the console.
 
-**BELOW IS NOT FOR TESTING**
+## Part 2: Extended Zero Config
+
+### Changes:
+
+- The first important change from part 1 is that the apps and services of a LAN must receive the adresses of the apps and services of that LAN.
+  - For example: Running `./app 224.1.10.1 224.1.10.2` and `./service 224.1.10.1 224.1.10.2` will start App-1 and Service-1 on LAN-A such that the app and service will communicate **exactly** as they did in **Part 1** of the assignment.
+  - Note that the order of arguments does **not** change: **the first argument is for apps and the second is for services**
+  - In this example, LAN-A will involve apps with address `224.1.10.1` and services with address `224.1.1.10.2 ` and both app-1 and service-1 will know this from the passed arguments.
+- For simplicity, we use the following adresses for our experiments:
+  - `224.1.10.1`: LAN-A Apps
+  - `224.1.10.2`: LAN-A Services
+  - `224.1.20.1`: LAN-B Apps
+  - `224.1.20.2`: LAN-B Services
+
+### Relay Setup
+
+- The relay is a process (relay.c) and is run in a separate terminal
+- The relay can be started before or after the apps and services are started since it does itself sends Discovery messages to force the Services on either LAN to respond.
+- The relay is designed to work with **two LANs** and any number of apps and services but our experiments will uses 2 apps and 2 services spread over the 2 LANs.
+- The relay runs **4 separate threads** to handle message forwarding between the two LANs:
+  - **listenServicesThread1**: Listens to messages from LAN-A Services --> Forwards to LAN-B Apps
+  - **listenServicesThread2**: Listens to messages from LAN-B Services --> Forwards to LAN-A Apps
+  - **listenAppsThread1**: Listens to messages from LAN-A Apps --> Forwards to LAN-B Services
+  - **listenAppsThread2**: Listens to messages from LAN-B Apps --> Forwards to LAN-A Services
+- We add a special tagging string `forward=true` to the messages during forwarding because the relay will do a multicast send when it forwards anything. This means that the relay will also receive any message which it forwards back in one of the listening threads.
+- Checking for this tag when listening for a message prevents the relay from being stuck in a forwarding loop since we can discard the message we just forwarded.
 
 ---
----
+
+## BELOW IS NOT FOR TESTING (Part-1 Relevant)
 
 ### some rough ideas
 
 zcs_init: (check app or service node)
+
 - if app
   1. create an app to service node multicast sending channel
-  2. create a local table 
+  2. create a local table
   3. send DISCOVERY - once
   4. create a app receiving channel
   5. listen NOTIFICATION, HEARTBEAT, and advertisement periodically (in another thread)
-      - update the local table or call the callback function
+     - update the local table or call the callback function
 - if service (assume a service node doesn't maintain a local table)
-  
 
 zcs_start: (only for the service node)
+
 1. create a service sending channel
 2. send NOTIFICATION - once
 3. create a service receiving channel
 4. listen DISCOVERY periodically (in another thread)
-   - if DISCOVERY received, send NOTIFICATION 
+   - if DISCOVERY received, send NOTIFICATION
 5. send HEARTBEAT periodically (in another thread)
 
 zcs_listen_ad:
-  Update the received service node status in the local table with the corresponding callback pointer.
-  Look up the table when a message is received. The receiving message will have the sender's name. use that and find the function to run. 
-
+Update the received service node status in the local table with the corresponding callback pointer.
+Look up the table when a message is received. The receiving message will have the sender's name. use that and find the function to run.
 
 ### message format
+
 - DISCOVERY: "message_type=DISCOVERY"
 - HEARTBEAT: "message_type=HEARTBEAT&name=[serviceName]"
 - NOTIFICATION: "message_type=NOTIFICATION&name=[serviceName]&[attr_name1]=[attr_value1]&[attr_name2]=[attr_value2]..."
