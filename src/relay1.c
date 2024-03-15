@@ -34,6 +34,7 @@ void encodeForwardMessage(char message[]) {
   message[newLength - 1] = '\0';
 }
 
+// listen for messages from services in LAN1 and forward them to apps in LAN2
 void *relay_listen_services1(void *args) {
   ListenThreadArgs *listenLAN1Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
@@ -61,6 +62,7 @@ void *relay_listen_services1(void *args) {
   }
 }
 
+// listen for messages from services in LAN2 and forward them to apps in LAN1
 void *relay_listen_services2(void *args) {
   ListenThreadArgs *listenLAN2Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
@@ -87,6 +89,7 @@ void *relay_listen_services2(void *args) {
   }
 }
 
+// listen for messages from apps in LAN1 and forward them to services in LAN2
 void *relay_listen_apps1(void *args) {
   ListenThreadArgs *listenLAN1Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel1 = listenLAN1Args->receivingChannel;
@@ -113,6 +116,7 @@ void *relay_listen_apps1(void *args) {
   }
 }
 
+// listen for messages from apps in LAN2 and forward them to services in LAN1
 void *relay_listen_apps2(void *args) {
   ListenThreadArgs *listenLAN2Args = (ListenThreadArgs *)args;
   mcast_t *relayReceivingChannel2 = listenLAN2Args->receivingChannel;
@@ -147,37 +151,40 @@ int main(int argc, char *argv[]) {
         argv[0]);
   }
 
-  // create a relay receiving multicast channel for LAN1
+  // create a relay receiving multicast channel from services in LAN1
   mcast_t *relayReceivingChannelServices1 =
       multicast_init(argv[1], UNUSED_PORT, APP_LPORT);
 
-  // create a relay sending multicast channel for LAN1
+  // create a relay sending multicast channel to services in LAN1
   mcast_t *relaySendingChannelServices1 =
       multicast_init(argv[2], SERVICE_LPORT, UNUSED_PORT);
 
-  // create a relay receiving multicast channel for LAN2
+  // create a relay receiving multicast channel from services in LAN2
   mcast_t *relayReceivingChannelServices2 =
       multicast_init(argv[3], UNUSED_PORT, APP_LPORT);
 
-  // create a relay sending multicast channel for LAN2
+  // create a relay sending multicast channel to services in LAN2
   mcast_t *relaySendingChannelServices2 =
       multicast_init(argv[4], SERVICE_LPORT, UNUSED_PORT);
 
   //----------------------------------------------------------------
 
+  // create a relay receiving multicast channel from apps in LAN1
   mcast_t *relayReceivingChannelApps1 =
       multicast_init(argv[2], UNUSED_PORT, SERVICE_LPORT);
 
+  // create a relay sending multicast channel to apps in LAN1
   mcast_t *relaySendingChannelApps1 =
       multicast_init(argv[1], APP_LPORT, UNUSED_PORT);
 
+  // create a relay receiving multicast channel from apps in LAN2
   mcast_t *relayReceivingChannelApps2 =
       multicast_init(argv[4], UNUSED_PORT, SERVICE_LPORT);
 
+  // create a relay sending multicast channel to apps in LAN2
   mcast_t *relaySendingChannelApps2 =
       multicast_init(argv[3], APP_LPORT, UNUSED_PORT);
 
-  // start the relay's listener thread for LAN1
   pthread_t listenServicesThread1;
   ListenThreadArgs *listenServices1Args = malloc(sizeof(ListenThreadArgs));
   listenServices1Args->receivingChannel = relayReceivingChannelServices1;
@@ -186,7 +193,6 @@ int main(int argc, char *argv[]) {
   pthread_create(&listenServicesThread1, NULL, relay_listen_services1,
                  (void *)listenServices1Args);
 
-  // start the relay's listener thread for LAN2
   pthread_t listenerServicesThread2;
   ListenThreadArgs *listenServices2Args = malloc(sizeof(ListenThreadArgs));
   listenServices2Args->receivingChannel = relayReceivingChannelServices2;
