@@ -51,6 +51,25 @@ You can use our custom Docker image for testing. But there are some steps you ne
 - We add a special tagging string `forward=true` to the messages during forwarding because the relay will do a multicast send when it forwards anything. This means that the relay will also receive any message which it forwards back in one of the listening threads.
 - Checking for this tag when listening for a message prevents the relay from being stuck in a forwarding loop since we can discard the message we just forwarded.
 
+### Limitations:
+
+**Having more than 2 LANs:**
+
+The are two general main limitations involved here:
+
+1. The relay expects to receive the addresses at runtime since we pass them as arguments. We would thus have to pass an array of adresses instead of the specifc 4 arguments used in our case.
+2. Assuming you pass an array of adresses, and have everything running, you have another issue of wether you want the relay to be adaptive when a new LAN is started or wether you reset the entire relay to re-pass the new adresses at runtime. Resetting the relay would obviouslt cause interruptions to ongoing communications and is undesirable.
+
+**Possible Solution:**
+
+Assuming we designed our relay to be receptive to a list of LAN app/service adresses, we would have issues with the forwarding since we currently have 4 threads only running with each having a specific task of listening and forwarding a message.
+
+It would thus not be possible to know how many threads to initialize in advance; instead, we would need an approach that starts a new thread on command when an app or service is started on any LAN network. This could be done through an Observer design pattern where the relay has some functionality that connects it to any new LAN that wants to join and then each we would have a callback such that any app/service would cause a new thread to start.
+
+This adaptive approach would thus address both limiation mentioned above since the relay doesn't even need to receive the adresses as arguments (they are injected in once a network wants to establish an involve itself in an inter-network).
+
+The threads also do not need to be started at relay runtime but only when an app/service is booted on the inter-network.
+
 ---
 
 ## BELOW IS NOT FOR TESTING (Part-1 Relevant)
