@@ -216,6 +216,14 @@ int main(int argc, char *argv[]) {
   pthread_create(&listenAppsThread2, NULL, relay_listen_apps2,
                  (void *)listenApps2Args);
 
+  // send discovery message to services in both LANs
+  multicast_send(relaySendingChannelServices1,
+                 "forward=true&message_type=DISCOVERY",
+                 strlen("forward=true&message_type=DISCOVERY"));
+  multicast_send(relaySendingChannelServices2,
+                 "forward=true&message_type=DISCOVERY",
+                 strlen("forward=true&message_type=DISCOVERY"));
+
   pthread_join(listenServicesThread1, NULL);
   pthread_join(listenerServicesThread2, NULL);
   pthread_join(listenAppsThread1, NULL);

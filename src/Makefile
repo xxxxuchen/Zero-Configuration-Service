@@ -21,4 +21,4 @@ service-2: service-2.c $(SRC_COMMON)
 relay-1: relay1.c $(SRC_COMMON)
 	$(CC) $(CFLAGS) -pthread -o $@ $^
 clean:
-	rm -f app service app-2 service-2 $(OBJ_COMMON)
+	rm -f app service app-2 service-2 relay relay-1 $(OBJ_COMMON)
