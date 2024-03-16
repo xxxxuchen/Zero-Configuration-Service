@@ -26,6 +26,20 @@ You can use our custom Docker image for testing. But there are some steps you ne
 
 ## Part 2: Extended Zero Config
 
+### HOW TO RUN THE CODE IN A SINGLE MACHINE
+- `cd src`. you MUST first to go to the **src** folder.
+- type `make` to compile the code.
+- Below is just an example of how to connect LAN-A and LAN-B by activating the relay.
+  - `./service 224.1.10.1 224.1.10.2` Start the service node in LAN-A
+  - `./app 224.1.10.1 224.1.10.2` Start the app node in LAN-A
+  - `./service-2 224.1.20.1 224.1.20.2` Start another service node in LAN-B
+  - `./app-2 224.1.20.1 224.1.20.2` Start another app node in LAN-B
+  - `./relay 224.1.10.1 224.1.10.2 224.1.20.1 224.1.20.2` Start the relay 
+- You can also see the relay is working by simply starting two nodes:
+  - `./service 224.1.10.1 224.1.10.2` Start the service node in LAN-A
+  - `./app 224.1.20.1 224.1.20.2` Start the app node in LAN-B
+  - `./relay 224.1.10.1 224.1.10.2 224.1.20.1 224.1.20.2` Start the relay 
+
 ### Changes:
 
 - The first important change from part 1 is that the apps and services of a LAN must receive the adresses of the apps and services of that LAN.
@@ -37,7 +51,6 @@ You can use our custom Docker image for testing. But there are some steps you ne
   - `224.1.10.2`: LAN-A Services
   - `224.1.20.1`: LAN-B Apps
   - `224.1.20.2`: LAN-B Services
-
 ### Relay Setup
 
 - The relay is a process (relay.c) and is run in a separate terminal
